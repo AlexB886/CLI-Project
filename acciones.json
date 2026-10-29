@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "acciones": [
+    {
+      "nombre": "listar",
+      "descripcion": "Lista el contenido de una carpeta en una tabla.",
+      "tipo": "funcion",
+      "ejecutar": "listar",
+      "destructiva": false,
+      "parametros": {
+        "carpeta": {
+          "tipo": "ruta",
+          "por_defecto": "."
+        }
+      }
+    },
+    {
+      "nombre": "validar",
+      "descripcion": "Comprueba que una ruta existe, es un fichero y no está vacío.",
+      "tipo": "funcion",
+      "ejecutar": "validar",
+      "destructiva": false,
+      "parametros": {
+        "ruta": {
+          "tipo": "ruta",
+          "requerido": true
+        }
+      }
+    }
+  ]
+}

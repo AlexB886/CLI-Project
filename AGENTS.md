@@ -7,8 +7,14 @@
 - Python is pinned to 3.12 via `.python-version`.
 - Run the CLI: `uv run tareas --help`.
 
+## Arquitectura
+- `src/tareas/cli.py` construye la app Typer dinámicamente desde `acciones.json`; no añadas acciones hardcodeadas allí.
+- `src/tareas/motor.py` carga, valida y ejecuta; `src/tareas/configuracion.py` valida el JSON.
+- Las funciones invocables desde el JSON se registran con `@registrar("nombre")` en `src/tareas/acciones/internas.py`.
+- `src/tareas/ia/` solo define la interfaz y `ProveedorNulo`; la IA nunca ejecuta acciones.
+
 ## Gotchas
-- `pyproject.toml` declares the entrypoint `tareas = "tareas.cli:app"`, but `src/tareas/cli.py` does NOT exist yet — every `uv run tareas ...` fails with `ModuleNotFoundError: No module named 'tareas.cli'` until a Typer `app` is created there.
+- `acciones.json` debe existir en la raíz o indicarse con `--acciones RUTA` (opción global, antes del comando).
 - No tests, linter, formatter, or CI configured yet. `opencode.json` pre-allows `uv run pytest *`; if adding tests, use pytest via `uv add --dev pytest`.
 
 ## Conventions
