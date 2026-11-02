@@ -26,6 +26,45 @@
           "requerido": true
         }
       }
+    },
+    {
+      "nombre": "borrar",
+      "descripcion": "Borra un fichero. Acción destructiva: exige --dry-run o confirmación.",
+      "tipo": "funcion",
+      "ejecutar": "borrar",
+      "destructiva": true,
+      "parametros": {
+        "ruta": {
+          "tipo": "ruta",
+          "requerido": true
+        }
+      }
+    },
+    {
+      "nombre": "ver",
+      "descripcion": "Muestra el contenido de un fichero de texto por consola.",
+      "tipo": "funcion",
+      "ejecutar": "ver",
+      "destructiva": false,
+      "parametros": {
+        "ruta": {
+          "tipo": "ruta",
+          "requerido": true
+        }
+      }
+    },
+    {
+      "nombre": "tamano",
+      "descripcion": "Calcula el tamaño total de una carpeta recursivamente.",
+      "tipo": "funcion",
+      "ejecutar": "tamano",
+      "destructiva": false,
+      "parametros": {
+        "carpeta": {
+          "tipo": "ruta",
+          "por_defecto": "."
+        }
+      }
     }
   ]
 }

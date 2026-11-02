@@ -111,3 +111,108 @@ def validar(ctx: ContextoAccion) -> ResultadoAccion:
     except OSError:
         resuelta = ruta
     return ResultadoAccion(codigo=0, salida=f"OK {resuelta}")
+
+
+@registrar("borrar")
+def borrar(ctx: ContextoAccion) -> ResultadoAccion:
+    """Borra un fichero. Exige simulación o confirmación previa."""
+    ruta = _como_ruta(ctx.parametros.get("ruta") or "")
+    if not str(ruta):
+        return ResultadoAccion(codigo=1, error="No se ha indicado ninguna ruta.")
+
+    if not ruta.exists():
+        return ResultadoAccion(codigo=1, error=f"La ruta «{ruta}» no existe.")
+    if ruta.is_dir():
+        return ResultadoAccion(
+            codigo=1,
+            error=f"«{ruta}» es una carpeta. Esta acción solo borra ficheros.",
+        )
+
+    try:
+        tamano = ruta.stat().st_size
+    except OSError as exc:
+        return ResultadoAccion(codigo=1, error=f"No se pudo leer «{ruta}»: {exc}")
+
+    if ctx.simular:
+        return ResultadoAccion(
+            codigo=0,
+            salida=f"[simular] Se borraría «{ruta}» ({tamano_legible(tamano)}).",
+        )
+
+    try:
+        ruta.unlink()
+    except OSError as exc:
+        return ResultadoAccion(codigo=1, error=f"No se pudo borrar «{ruta}»: {exc}")
+    return ResultadoAccion(codigo=0, salida=f"Borrado «{ruta}».")
+
+
+@registrar("ver")
+def ver(ctx: ContextoAccion) -> ResultadoAccion:
+    """Muestra el contenido de un fichero por consola."""
+    ruta = _como_ruta(ctx.parametros.get("ruta") or "")
+    if not str(ruta):
+        return ResultadoAccion(codigo=1, error="No se ha indicado ninguna ruta.")
+
+    if not ruta.is_file():
+        return ResultadoAccion(codigo=1, error=f"«{ruta}» no es un fichero legible.")
+
+    try:
+        lineas = ruta.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError:
+        return ResultadoAccion(
+            codigo=1,
+            error=f"«{ruta}» no es un fichero de texto (UTF-8).",
+        )
+    except OSError as exc:
+        return ResultadoAccion(codigo=1, error=f"No se pudo leer «{ruta}»: {exc}")
+
+    max_lineas = 200
+    aviso = ""
+    if len(lineas) > max_lineas:
+        aviso = f"\n… ({len(lineas) - max_lineas} líneas omitidas)."
+        lineas = lineas[:max_lineas]
+
+    return ResultadoAccion(codigo=0, salida="\n".join(lineas) + aviso)
+
+
+@registrar("tamano")
+def tamano(ctx: ContextoAccion) -> ResultadoAccion:
+    """Calcula el tamaño total de una carpeta recursivamente."""
+    carpeta = _como_ruta(ctx.parametros.get("carpeta") or ".")
+    if not carpeta.is_dir():
+        return ResultadoAccion(
+            codigo=1,
+            error=f"«{carpeta}» no existe o no es una carpeta.",
+        )
+
+    total = 0
+    ficheros = 0
+    carpetas = 0
+    for ruta in carpeta.rglob("*"):
+        try:
+            if ruta.is_dir():
+                carpetas += 1
+            elif ruta.is_file():
+                total += ruta.stat().st_size
+                ficheros += 1
+        except OSError:
+            continue
+
+    try:
+        titulo = f"Tamaño de {carpeta.resolve()}"
+    except OSError:
+        titulo = f"Tamaño de {carpeta}"
+
+    return ResultadoAccion(
+        codigo=0,
+        datos=TablaContenido(
+            titulo=titulo,
+            columnas=("Elemento", "Valor"),
+            filas=(
+                ("Ficheros", str(ficheros)),
+                ("Carpetas", str(carpetas)),
+                ("Tamaño total", tamano_legible(total)),
+            ),
+            alinear_derecha=(1,),
+        ),
+    )
