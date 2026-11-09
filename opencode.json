@@ -22,6 +22,24 @@
     }
   },
   "agent": {
-    "plan": { "permission": { "edit": "deny" } }
+    "plan": { "permission": { "edit": "deny" } },
+    "revisor-tareas": {
+      "mode": "subagent",
+      "description": "Audita src/tareas/ en solo lectura y reporta hallazgos sin modificar el repositorio.",
+      "permission": {
+        "edit": "deny",
+        "read": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "list": "allow",
+        "bash": {
+          "pwd *": "allow",
+          "git status *": "allow",
+          "*": "deny"
+        },
+        "task": "deny"
+      },
+      "prompt": "Audita exclusivamente src/tareas/ y reporta hallazgos ordenados por severidad con rutas y líneas. Usa solo herramientas de lectura y, si hace falta, bash para pwd o git status. No edites, no crees, no borres ni ejecutes comandos del proyecto. No propongas cambios como si ya estuvieran aplicados. Incluye riesgos, regresiones y carencias de pruebas."
+    }
   }
 }
