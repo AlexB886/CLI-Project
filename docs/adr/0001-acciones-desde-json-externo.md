@@ -1,6 +1,6 @@
 # ADR 0001: Acciones declaradas en JSON externo
 
-- **Estado:** Propuesto
+- **Estado:** Aceptado
 - **Fecha:** 2026-11-09
 
 ## Contexto
@@ -52,11 +52,8 @@ entre el cwd o una opción explícita `--base RUTA`. La validación deberá
 
 - resolver la ruta contra esa raíz;
 - rechazar traversal mediante `../`;
-- rechazar rutas absolutas que queden fuera de la raíz;
+- rechazar todas las rutas absolutas;
 - rechazar rutas de sistema y cualquier destino fuera de la raíz autorizada;
 - conservar `--dry-run` y la confirmación para toda operación destructiva.
 
-## Siguiente paso
-
-Preparar y revisar el parche de confinamiento de `borrar`. Este ADR no incluye
-ese parche ni cambia el comportamiento actual.
+Consecuencia: borrar ya no puede salirse de la raiz autorizada.

@@ -15,6 +15,7 @@ from tareas import __version__
 from tareas.acciones.registro import registro
 from tareas.configuracion import CargadorAccionesJSON
 from tareas.errores import AccionNoValida, ConfigError
+from tareas.acciones.internas import RutaFueraDeBaseError
 from tareas.modelos import Accion, ResultadoAccion, TablaContenido
 from tareas.motor import Motor
 
@@ -113,6 +114,9 @@ def _ejecutar_accion(
     except AccionNoValida as exc:
         _error(str(exc))
         raise typer.Exit(code=2) from exc
+    except RutaFueraDeBaseError as exc:
+        _error(str(exc))
+        raise typer.Exit(code=1) from exc
 
     _presentar(resultado)
     if resultado.codigo != 0:
@@ -134,6 +138,10 @@ def _crear_comando(accion: Accion):
                 help="Parámetro con formato CLAVE=VALOR. Se puede repetir.",
             ),
         ] = None,
+        base: Annotated[
+            Path | None,
+            typer.Option("--base", help="Raíz autorizada para borrar (por defecto, el cwd)."),
+        ] = None,
         dry_run: Annotated[
             bool,
             typer.Option(
@@ -151,6 +159,8 @@ def _crear_comando(accion: Accion):
             ),
         ] = False,
     ) -> None:
+        if base is not None:
+            parametros = [*(parametros or []), f"base={base}"]
         _ejecutar_accion(ctx, accion.nombre, args, parametros, dry_run, si)
 
     comando.__name__ = f"comando_{accion.nombre.replace('-', '_')}"

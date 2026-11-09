@@ -7,6 +7,10 @@ from tareas.acciones.registro import registrar
 from tareas.modelos import ContextoAccion, ResultadoAccion, TablaContenido
 
 
+class RutaFueraDeBaseError(Exception):
+    """La ruta solicitada sale de la raíz autorizada para borrar."""
+
+
 def _como_ruta(valor: object) -> Path:
     if isinstance(valor, Path):
         return valor
@@ -116,9 +120,21 @@ def validar(ctx: ContextoAccion) -> ResultadoAccion:
 @registrar("borrar")
 def borrar(ctx: ContextoAccion) -> ResultadoAccion:
     """Borra un fichero. Exige simulación o confirmación previa."""
-    ruta = _como_ruta(ctx.parametros.get("ruta") or "")
-    if not str(ruta):
+    valor_ruta = ctx.parametros.get("ruta")
+    if not valor_ruta:
         return ResultadoAccion(codigo=1, error="No se ha indicado ninguna ruta.")
+
+    ruta = _como_ruta(valor_ruta)
+    base = _como_ruta(ctx.parametros.get("base") or Path.cwd()).resolve()
+    if ruta.is_absolute():
+        raise RutaFueraDeBaseError("No se permiten rutas absolutas para borrar.")
+    try:
+        ruta = (base / ruta).resolve()
+        ruta.relative_to(base)
+    except (ValueError, OSError) as exc:
+        raise RutaFueraDeBaseError(
+            f"La ruta «{valor_ruta}» queda fuera de la raíz autorizada «{base}»."
+        ) from exc
 
     if not ruta.exists():
         return ResultadoAccion(codigo=1, error=f"La ruta «{ruta}» no existe.")

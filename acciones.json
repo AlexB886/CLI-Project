@@ -37,6 +37,10 @@
         "ruta": {
           "tipo": "ruta",
           "requerido": true
+        },
+        "base": {
+          "tipo": "ruta",
+          "por_defecto": "."
         }
       }
     },
