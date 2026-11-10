@@ -11,3 +11,7 @@ class IAnoDisponible(ErrorProveedorIA):
 
 class TimeoutProveedorIA(ErrorProveedorIA):
     """El proveedor no respondió dentro del tiempo permitido."""
+
+
+class RespuestaIAInvalida(ErrorProveedorIA):
+    """La respuesta del proveedor no cumple el formato esperado."""

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from tareas.acciones.registro import registrar
 from tareas.errores import ConfigError
-from tareas.ia.errores import ErrorProveedorIA
+from tareas.ia.errores import ErrorProveedorIA, RespuestaIAInvalida
 from tareas.modelos import ContextoAccion, ResultadoAccion, TablaContenido
 
 MENSAJE_OFFLINE_IA = "IA no disponible (modo offline): sigo con las acciones sin IA"
@@ -264,3 +264,55 @@ def resumir_ia(ctx: ContextoAccion) -> ResultadoAccion:
     except (ConfigError, ErrorProveedorIA):
         return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
     return ResultadoAccion(codigo=0, salida=resumen)
+
+
+@registrar("tarea-ia")
+def tarea_ia(ctx: ContextoAccion) -> ResultadoAccion:
+    """Convierte texto libre en una tarea estructurada con IA."""
+    texto = str(ctx.parametros.get("texto") or "").strip()
+    if not texto:
+        return ResultadoAccion(codigo=1, error="Indica el texto para crear la tarea.")
+
+    proveedor = ctx.proveedor_ia
+    if proveedor is None or not proveedor.disponible():
+        return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
+
+    try:
+        propuesta = proveedor.generar_texto(
+            "Convierte esta petición en una tarea. Devuelve exactamente tres líneas "
+            "en texto plano y con este formato:\n"
+            "Título: <título breve>\n"
+            "Prioridad: <Alta, Media o Baja>\n"
+            "Fecha sugerida: <AAAA-MM-DD o Sin fecha>\n\n"
+            f"Petición: {texto}",
+            "Eres un asistente que organiza peticiones como tareas claras y copiables. "
+            "No añadas introducciones, explicaciones ni formato Markdown.",
+        )
+    except (ConfigError, ErrorProveedorIA):
+        return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
+
+    campos = {}
+    for linea in propuesta.splitlines():
+        etiqueta, separador, valor = linea.partition(":")
+        if separador:
+            campos[etiqueta.strip().casefold()] = valor.strip()
+
+    titulo = campos.get("título")
+    prioridad = campos.get("prioridad")
+    fecha = campos.get("fecha sugerida")
+    prioridades_validas = {"alta", "media", "baja"}
+    try:
+        if (
+            not titulo
+            or prioridad is None
+            or prioridad.casefold() not in prioridades_validas
+            or not fecha
+        ):
+            raise RespuestaIAInvalida("La IA devolvió una tarea con formato inválido.")
+        if fecha.casefold() != "sin fecha":
+            datetime.strptime(fecha, "%Y-%m-%d")
+    except (RespuestaIAInvalida, ValueError):
+        return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
+
+    salida = f"Título: {titulo}\nPrioridad: {prioridad}\nFecha sugerida: {fecha}"
+    return ResultadoAccion(codigo=0, salida=salida)

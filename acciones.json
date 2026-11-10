@@ -83,6 +83,21 @@
           "requerido": true
         }
       }
+    },
+    {
+      "nombre": "tarea-ia",
+      "descripcion": "Convierte texto libre en una tarea estructurada con IA.",
+      "tipo": "funcion",
+      "ejecutar": "tarea-ia",
+      "destructiva": false,
+      "ia": true,
+      "parametros": {
+        "texto": {
+          "tipo": "texto",
+          "requerido": true,
+          "ayuda": "Texto que describe la tarea que quieres crear."
+        }
+      }
     }
   ]
 }
