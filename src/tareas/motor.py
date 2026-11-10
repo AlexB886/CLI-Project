@@ -5,7 +5,7 @@ from pathlib import Path
 from tareas.acciones.registro import RegistroAcciones, registro as registro_global
 from tareas.configuracion import CargadorAccionesJSON
 from tareas.errores import AccionNoValida, ConfigError
-from tareas.ia import crear_proveedor
+from tareas.ia.fabrica import crear_proveedor
 from tareas.ia.proveedor import ProveedorIA
 from tareas.modelos import Accion, ContextoAccion, ResultadoAccion
 from tareas.parametros import resolver_parametros
