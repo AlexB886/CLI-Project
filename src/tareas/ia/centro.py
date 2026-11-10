@@ -15,7 +15,7 @@ class ProveedorCentro:
 
     nombre = "centro"
     endpoint = "https://10.100.22.107/llmapi/v1"
-    modelo = "Qwen38-DualSpark"
+    modelo = "Qwen38-DualSpark-low"
 
     def __init__(self, clave: str, timeout: float = 20.0) -> None:
         if not clave:
