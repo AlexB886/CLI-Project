@@ -41,6 +41,7 @@ class ContextoAccion:
 
     parametros: dict[str, Any]
     simular: bool = False
+    proveedor_ia: Any = None
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,8 @@ from pathlib import Path
 from tareas.acciones.registro import RegistroAcciones, registro as registro_global
 from tareas.configuracion import CargadorAccionesJSON
 from tareas.errores import AccionNoValida, ConfigError
+from tareas.ia import crear_proveedor
+from tareas.ia.proveedor import ProveedorIA
 from tareas.modelos import Accion, ContextoAccion, ResultadoAccion
 from tareas.parametros import resolver_parametros
 from tareas.puertos import CargadorAcciones, Confirmador, EjecutorAccion
@@ -19,11 +21,13 @@ class Motor:
         cargador: CargadorAcciones | None = None,
         registro: RegistroAcciones | None = None,
         confirmador: Confirmador | None = None,
+        proveedor_ia: ProveedorIA | None = None,
     ) -> None:
         self._ruta = ruta.expanduser()
         self._cargador = cargador or CargadorAccionesJSON()
         self._registro = registro or registro_global
         self._confirmador = confirmador or (lambda accion: False)
+        self._proveedor_ia = proveedor_ia or crear_proveedor()
         self._acciones: dict[str, Accion] | None = None
         self._ejecutores: dict[str, EjecutorAccion] = {}
 
@@ -81,7 +85,11 @@ class Motor:
             if not self._confirmador(accion):
                 return ResultadoAccion(codigo=1, error="Operación cancelada.")
 
-        contexto = ContextoAccion(parametros=valores, simular=simular)
+        contexto = ContextoAccion(
+            parametros=valores,
+            simular=simular,
+            proveedor_ia=self._proveedor_ia,
+        )
         ejecutor = self._ejecutores[nombre]
         if simular:
             return ejecutor.previsualizar(contexto)
