@@ -17,6 +17,7 @@ CLAVES_ACCION = {
     "tipo",
     "ejecutar",
     "destructiva",
+    "ia",
     "parametros",
 }
 CLAVES_PARAMETRO = {"tipo", "requerido", "por_defecto", "ayuda"}
@@ -128,6 +129,10 @@ class CargadorAccionesJSON:
                 f"«destructiva» de la acción «{nombre}» debe ser true o false."
             )
 
+        usa_ia = elemento.get("ia", False)
+        if not isinstance(usa_ia, bool):
+            raise ConfigError(f"«ia» de la acción «{nombre}» debe ser true o false.")
+
         parametros = self._leer_parametros(
             nombre, elemento.get("parametros", {})
         )
@@ -138,6 +143,7 @@ class CargadorAccionesJSON:
             ejecutar=ejecutar,
             destructiva=destructiva,
             parametros=parametros,
+            ia=usa_ia,
         )
 
     def _leer_ejecucion(

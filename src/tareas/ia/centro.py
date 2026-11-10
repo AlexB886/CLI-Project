@@ -7,7 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from tareas.ia.errores import ErrorProveedorIA, IAnoDisponible
+from tareas.ia.errores import ErrorProveedorIA, IAnoDisponible, TimeoutProveedorIA
 
 
 class ProveedorCentro:
@@ -72,3 +72,44 @@ class ProveedorCentro:
         if not propuestas:
             raise ErrorProveedorIA("La IA del centro devolvió una respuesta vacía.")
         return propuestas
+
+    def generar_texto(self, peticion: str, contexto: str) -> str:
+        """Genera texto libre, rechazando respuestas vacías o mal formadas."""
+        cuerpo = json.dumps(
+            {
+                "model": self.modelo,
+                "messages": [
+                    {"role": "system", "content": contexto},
+                    {"role": "user", "content": peticion},
+                ],
+            }
+        ).encode("utf-8")
+        solicitud = Request(
+            f"{self.endpoint}/chat/completions",
+            data=cuerpo,
+            headers={
+                "Authorization": f"Bearer {self._clave}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(solicitud, timeout=self._timeout) as respuesta:
+                datos = json.loads(respuesta.read().decode("utf-8"))
+        except (TimeoutError, socket.timeout) as exc:
+            raise TimeoutProveedorIA("La IA del centro agotó el tiempo de espera.") from exc
+        except (HTTPError, URLError, OSError) as exc:
+            raise IAnoDisponible("No se pudo conectar con la IA del centro.") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.") from exc
+
+        try:
+            texto = datos["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.") from exc
+        if not isinstance(texto, str):
+            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.")
+        texto = texto.strip()
+        if not texto:
+            raise ErrorProveedorIA("La IA del centro devolvió una respuesta vacía.")
+        return texto

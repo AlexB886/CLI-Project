@@ -7,3 +7,7 @@ class ErrorProveedorIA(Exception):
 
 class IAnoDisponible(ErrorProveedorIA):
     """No hay conexión válida con el proveedor."""
+
+
+class TimeoutProveedorIA(ErrorProveedorIA):
+    """El proveedor no respondió dentro del tiempo permitido."""

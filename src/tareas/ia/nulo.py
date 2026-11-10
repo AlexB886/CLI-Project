@@ -15,3 +15,7 @@ class ProveedorNulo:
     def proponer_acciones(self, peticion: str, contexto: str) -> list[dict]:
         """Falla de forma explícita si alguien intenta usar IA."""
         raise ConfigError("No hay ningún proveedor de IA configurado.")
+
+    def generar_texto(self, peticion: str, contexto: str) -> str:
+        """Falla de forma explícita si alguien intenta generar texto con IA."""
+        raise ConfigError("No hay ningún proveedor de IA configurado.")

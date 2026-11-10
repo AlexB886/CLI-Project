@@ -69,6 +69,20 @@
           "por_defecto": "."
         }
       }
+    },
+    {
+      "nombre": "resumir-ia",
+      "descripcion": "Resume un fichero de texto en unas tres líneas con IA.",
+      "tipo": "funcion",
+      "ejecutar": "resumir-ia",
+      "destructiva": false,
+      "ia": true,
+      "parametros": {
+        "ruta": {
+          "tipo": "ruta",
+          "requerido": true
+        }
+      }
     }
   ]
 }

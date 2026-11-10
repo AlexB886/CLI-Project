@@ -33,6 +33,7 @@ class Accion:
     ejecutar: str | tuple[str, ...]
     destructiva: bool
     parametros: tuple[Parametro, ...] = ()
+    ia: bool = False
 
 
 @dataclass(frozen=True)

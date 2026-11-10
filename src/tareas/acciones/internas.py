@@ -4,7 +4,11 @@ from datetime import datetime
 from pathlib import Path
 
 from tareas.acciones.registro import registrar
+from tareas.errores import ConfigError
+from tareas.ia.errores import ErrorProveedorIA
 from tareas.modelos import ContextoAccion, ResultadoAccion, TablaContenido
+
+MENSAJE_OFFLINE_IA = "IA no disponible (modo offline): sigo con las acciones sin IA"
 
 
 class RutaFueraDeBaseError(Exception):
@@ -232,3 +236,31 @@ def tamano(ctx: ContextoAccion) -> ResultadoAccion:
             alinear_derecha=(1,),
         ),
     )
+
+
+@registrar("resumir-ia")
+def resumir_ia(ctx: ContextoAccion) -> ResultadoAccion:
+    """Resume un fichero de texto con IA o informa del modo offline."""
+    ruta = _como_ruta(ctx.parametros.get("ruta") or "")
+    if not str(ruta) or not ruta.is_file():
+        return ResultadoAccion(codigo=1, error=f"«{ruta}» no es un fichero legible.")
+
+    try:
+        texto = ruta.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return ResultadoAccion(codigo=1, error=f"«{ruta}» no es un fichero de texto (UTF-8).")
+    except OSError as exc:
+        return ResultadoAccion(codigo=1, error=f"No se pudo leer «{ruta}»: {exc}")
+
+    proveedor = ctx.proveedor_ia
+    if proveedor is None or not proveedor.disponible():
+        return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
+
+    try:
+        resumen = proveedor.generar_texto(
+            f"Resume el siguiente texto en aproximadamente tres líneas:\n\n{texto}",
+            "Eres un asistente que resume textos de forma fiel y concisa.",
+        )
+    except (ConfigError, ErrorProveedorIA):
+        return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
+    return ResultadoAccion(codigo=0, salida=resumen)

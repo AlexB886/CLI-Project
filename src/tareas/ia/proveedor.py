@@ -22,3 +22,7 @@ class ProveedorIA(Protocol):
     def proponer_acciones(self, peticion: str, contexto: str) -> list[dict]:
         """Devuelve propuestas sin validar ni ejecutar."""
         ...
+
+    def generar_texto(self, peticion: str, contexto: str) -> str:
+        """Genera una respuesta de texto sin ejecutar acciones."""
+        ...
