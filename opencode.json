@@ -7,7 +7,6 @@
     "read": { "*": "allow", "*.env": "deny", "*.env.*": "deny", "*.env.example": "allow" },
     "bash": {
       "pwd *": "allow",
-      "cat *": "allow",
       "git status *": "allow",
       "git diff *": "allow",
       "git log *": "allow",
