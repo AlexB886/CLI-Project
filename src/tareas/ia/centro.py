@@ -1,13 +1,19 @@
+
 """Proveedor compatible con la API del centro."""
 
 import json
+import os
 import socket
 import ssl
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from tareas.ia.errores import ErrorProveedorIA, IAnoDisponible, TimeoutProveedorIA
+from tareas.ia.errores import (
+    ErrorProveedorIA,
+    IAnoDisponible,
+    TimeoutProveedorIA,
+)
 
 
 class ProveedorCentro:
@@ -17,24 +23,47 @@ class ProveedorCentro:
     endpoint = "https://10.100.22.107/llmapi/v1"
     modelo = "Qwen38-DualSpark-low"
 
-    def __init__(self, clave: str, timeout: float = 20.0) -> None:
+    def __init__(self, clave: str, timeout: float = 120.0) -> None:
         if not clave:
             raise ValueError("Se requiere una clave para crear el proveedor.")
+
         self._clave = clave
         self._timeout = timeout
 
+    def _crear_contexto_tls(self) -> ssl.SSLContext:
+        """Crea el contexto TLS usando la CA del centro si está configurada."""
+        certificado = os.environ.get("TAREAS_CA_BUNDLE")
+
+        if certificado:
+            return ssl.create_default_context(cafile=certificado)
+
+        return ssl.create_default_context()
+
     def disponible(self) -> bool:
-        """Comprueba conexión TCP y confianza TLS sin mostrar detalles sensibles."""
+        """Comprueba conexión TCP y confianza TLS."""
         url = urlsplit(self.endpoint)
+
         try:
-            with socket.create_connection((url.hostname, url.port or 443), timeout=self._timeout) as conexion:
-                contexto = ssl.create_default_context()
-                with contexto.wrap_socket(conexion, server_hostname=url.hostname):
+            with socket.create_connection(
+                (url.hostname, url.port or 443),
+                timeout=self._timeout,
+            ) as conexion:
+                contexto = self._crear_contexto_tls()
+
+                with contexto.wrap_socket(
+                    conexion,
+                    server_hostname=url.hostname,
+                ):
                     return True
+
         except (OSError, ssl.SSLError, TimeoutError):
             return False
 
-    def proponer_acciones(self, peticion: str, contexto: str) -> list[dict]:
+    def proponer_acciones(
+        self,
+        peticion: str,
+        contexto: str,
+    ) -> list[dict]:
         """Envía la petición y valida que la respuesta sea una lista JSON."""
         cuerpo = json.dumps(
             {
@@ -45,6 +74,7 @@ class ProveedorCentro:
                 ],
             }
         ).encode("utf-8")
+
         solicitud = Request(
             f"{self.endpoint}/chat/completions",
             data=cuerpo,
@@ -54,27 +84,50 @@ class ProveedorCentro:
             },
             method="POST",
         )
+
         try:
-            with urlopen(solicitud, timeout=self._timeout) as respuesta:
+            with urlopen(
+                solicitud,
+                timeout=self._timeout,
+                context=self._crear_contexto_tls(),
+            ) as respuesta:
                 datos = json.loads(respuesta.read().decode("utf-8"))
+
         except (HTTPError, URLError, TimeoutError, socket.timeout, OSError) as exc:
-            raise IAnoDisponible("No se pudo conectar con la IA del centro.") from exc
+            raise IAnoDisponible(
+                "No se pudo conectar con la IA del centro."
+            ) from exc
+
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.") from exc
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta inválida."
+            ) from exc
 
         try:
             contenido = datos["choices"][0]["message"]["content"]
             propuestas = json.loads(contenido)
+
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.") from exc
-        if not isinstance(propuestas, list) or not all(isinstance(item, dict) for item in propuestas):
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.")
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta inválida."
+            ) from exc
+
+        if not isinstance(propuestas, list) or not all(
+            isinstance(item, dict) for item in propuestas
+        ):
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta inválida."
+            )
+
         if not propuestas:
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta vacía.")
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta vacía."
+            )
+
         return propuestas
 
     def generar_texto(self, peticion: str, contexto: str) -> str:
-        """Genera texto libre, rechazando respuestas vacías o mal formadas."""
+        """Genera texto libre y valida la respuesta."""
         cuerpo = json.dumps(
             {
                 "model": self.modelo,
@@ -84,6 +137,7 @@ class ProveedorCentro:
                 ],
             }
         ).encode("utf-8")
+
         solicitud = Request(
             f"{self.endpoint}/chat/completions",
             data=cuerpo,
@@ -93,23 +147,48 @@ class ProveedorCentro:
             },
             method="POST",
         )
+
         try:
-            with urlopen(solicitud, timeout=self._timeout) as respuesta:
+            with urlopen(
+                solicitud,
+                timeout=self._timeout,
+                context=self._crear_contexto_tls(),
+            ) as respuesta:
                 datos = json.loads(respuesta.read().decode("utf-8"))
+
         except (TimeoutError, socket.timeout) as exc:
-            raise TimeoutProveedorIA("La IA del centro agotó el tiempo de espera.") from exc
+            raise TimeoutProveedorIA(
+                "La IA del centro agotó el tiempo de espera."
+            ) from exc
+
         except (HTTPError, URLError, OSError) as exc:
-            raise IAnoDisponible("No se pudo conectar con la IA del centro.") from exc
+            raise IAnoDisponible(
+                "No se pudo conectar con la IA del centro."
+            ) from exc
+
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.") from exc
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta inválida."
+            ) from exc
 
         try:
             texto = datos["choices"][0]["message"]["content"]
+
         except (KeyError, IndexError, TypeError) as exc:
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.") from exc
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta inválida."
+            ) from exc
+
         if not isinstance(texto, str):
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.")
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta inválida."
+            )
+
         texto = texto.strip()
+
         if not texto:
-            raise ErrorProveedorIA("La IA del centro devolvió una respuesta vacía.")
+            raise ErrorProveedorIA(
+                "La IA del centro devolvió una respuesta vacía."
+            )
+
         return texto
