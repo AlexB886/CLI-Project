@@ -154,6 +154,51 @@ docs/adr/            # decisiones de arquitectura
 .opencode/           # skill y comando del agente
 ```
 
+## Funciones de IA
+
+`resumir-ia` envía el contenido de un fichero de texto al servicio Qwen del
+centro y `tarea-ia` convierte una petición en una tarea estructurada. Para
+utilizarlos se necesitan:
+
+- Acceso de red desde el equipo al endpoint del centro
+  `https://10.100.22.107/llmapi/v1` (incluyendo ruta y puerto HTTPS 443).
+- Una `TAREAS_API_KEY` válida para el servicio del centro. Puede proporcionarse
+  como variable de entorno o en `.env` local; nunca se incluye en Git.
+- Si la CA del servicio no está en el almacén de confianza del sistema, una
+  copia autorizada del certificado CA del centro y `TAREAS_CA_BUNDLE` apuntando
+  a ese fichero. El proveedor verifica TLS en ambos casos; no desactiva la
+  validación.
+
+Ejemplo para Linux, desde la raíz del proyecto (usa rutas genéricas):
+
+```bash
+export TAREAS_API_KEY='tu-clave-proporcionada-por-el-centro'
+export TAREAS_CA_BUNDLE="/ruta/al/certificado-CA-del-centro.crt"
+uv run tareas resumir-ia documento.txt
+uv run tareas tarea-ia "Preparar la exposición para el viernes"
+```
+
+En el equipo del profesor hay que configurar sus propias credenciales y obtener
+la CA por un canal autorizado; no se puede asumir que la clave local, la ruta
+`certs/` o la conectividad de este ordenador existan allí. Sin API Key, red o
+CA reconocida/configurada, Qwen no estará disponible. Las acciones tradicionales
+del CLI siguen funcionando sin conexión a Qwen.
+
+## Comandos de apoyo
+
+- `doctor` muestra la versión, el fichero de acciones, el número de acciones,
+  las acciones con IA y si la clave o el certificado CA están configurados en
+  el entorno. No contacta con la IA y nunca muestra el valor de la clave.
+- `menu` presenta un menú numerado con todas las acciones declaradas y pide los
+  parámetros necesarios. Escribe `0` para salir; en una terminal sin entrada
+  interactiva termina con un aviso. Las acciones destructivas siguen exigiendo
+  confirmación.
+
+```bash
+uv run tareas doctor
+uv run tareas menu
+```
+
 ## Artefactos de IA (sesión 2)
 
 - **Skill** `.opencode/skills/acciones-json/SKILL.md`: documenta el esquema del JSON.

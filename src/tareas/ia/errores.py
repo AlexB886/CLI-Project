@@ -5,6 +5,10 @@ class ErrorProveedorIA(Exception):
     """Fallo de comunicación o de respuesta del proveedor de IA."""
 
 
+class AutenticacionProveedorIA(ErrorProveedorIA):
+    """La clave no es válida o no tiene acceso al servicio del centro."""
+
+
 class IAnoDisponible(ErrorProveedorIA):
     """No hay conexión válida con el proveedor."""
 
