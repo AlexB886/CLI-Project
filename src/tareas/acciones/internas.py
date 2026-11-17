@@ -1,11 +1,17 @@
 """Acciones internas que pueden declararse en acciones.json."""
 
-from datetime import datetime
+import re
+from datetime import date, datetime
 from pathlib import Path
 
 from tareas.acciones.registro import registrar
 from tareas.errores import ConfigError
-from tareas.ia.errores import ErrorProveedorIA, RespuestaIAInvalida
+from tareas.ia.errores import (
+    AutenticacionProveedorIA,
+    ErrorProveedorIA,
+    IAnoDisponible,
+    TimeoutProveedorIA,
+)
 from tareas.modelos import ContextoAccion, ResultadoAccion, TablaContenido
 
 MENSAJE_OFFLINE_IA = "IA no disponible (modo offline): sigo con las acciones sin IA"
@@ -253,7 +259,7 @@ def resumir_ia(ctx: ContextoAccion) -> ResultadoAccion:
         return ResultadoAccion(codigo=1, error=f"No se pudo leer «{ruta}»: {exc}")
 
     proveedor = ctx.proveedor_ia
-    if proveedor is None or not proveedor.disponible():
+    if proveedor is None:
         return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
 
     try:
@@ -266,6 +272,57 @@ def resumir_ia(ctx: ContextoAccion) -> ResultadoAccion:
     return ResultadoAccion(codigo=0, salida=resumen)
 
 
+def validar_tarea_ia(respuesta: str) -> ResultadoAccion:
+    """Valida y normaliza la tarea devuelta por el modelo, sin depender del proveedor."""
+    campos: dict[str, str] = {}
+    for linea in respuesta.splitlines():
+        etiqueta, separador, valor = linea.partition(":")
+        if separador:
+            campos[etiqueta.strip().casefold()] = valor.strip()
+
+    titulo = campos.get("título", "")
+    prioridad = campos.get("prioridad", "")
+    fecha = campos.get("fecha sugerida", "")
+
+    if not titulo or not prioridad:
+        return ResultadoAccion(
+            codigo=1,
+            error="La respuesta de la IA no incluye un título y una prioridad válidos.",
+        )
+
+    normalizadas = {"alta": "Alta", "media": "Media", "baja": "Baja"}
+    prioridad_normalizada = normalizadas.get(prioridad.casefold())
+    if prioridad_normalizada is None:
+        return ResultadoAccion(
+            codigo=1,
+            error="La prioridad de la respuesta de la IA debe ser Alta, Media o Baja.",
+        )
+
+    if not fecha or fecha.casefold() == "sin fecha":
+        fecha_normalizada = "Sin fecha"
+    elif not re.fullmatch(r"\d{4}-\d{2}-\d{2}", fecha):
+        return ResultadoAccion(
+            codigo=1,
+            error="La fecha de la respuesta de la IA debe usar el formato AAAA-MM-DD.",
+        )
+    else:
+        try:
+            date.fromisoformat(fecha)
+        except ValueError:
+            return ResultadoAccion(
+                codigo=1,
+                error="La fecha de la respuesta de la IA no existe en el calendario.",
+            )
+        fecha_normalizada = fecha
+
+    salida = (
+        f"Título: {titulo}\n"
+        f"Prioridad: {prioridad_normalizada}\n"
+        f"Fecha sugerida: {fecha_normalizada}"
+    )
+    return ResultadoAccion(codigo=0, salida=salida)
+
+
 @registrar("tarea-ia")
 def tarea_ia(ctx: ContextoAccion) -> ResultadoAccion:
     """Convierte texto libre en una tarea estructurada con IA."""
@@ -274,7 +331,7 @@ def tarea_ia(ctx: ContextoAccion) -> ResultadoAccion:
         return ResultadoAccion(codigo=1, error="Indica el texto para crear la tarea.")
 
     proveedor = ctx.proveedor_ia
-    if proveedor is None or not proveedor.disponible():
+    if proveedor is None:
         return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
 
     try:
@@ -288,31 +345,22 @@ def tarea_ia(ctx: ContextoAccion) -> ResultadoAccion:
             "Eres un asistente que organiza peticiones como tareas claras y copiables. "
             "No añadas introducciones, explicaciones ni formato Markdown.",
         )
-    except (ConfigError, ErrorProveedorIA):
+    except (ConfigError, IAnoDisponible):
         return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
+    except AutenticacionProveedorIA:
+        return ResultadoAccion(
+            codigo=1,
+            error="La clave de la IA del centro no es válida o no tiene acceso. Revisa la configuración.",
+        )
+    except TimeoutProveedorIA:
+        return ResultadoAccion(
+            codigo=1,
+            error="La IA del centro agotó el tiempo de espera. Inténtalo de nuevo.",
+        )
+    except ErrorProveedorIA:
+        return ResultadoAccion(
+            codigo=1,
+            error="La IA del centro devolvió una respuesta inválida.",
+        )
 
-    campos = {}
-    for linea in propuesta.splitlines():
-        etiqueta, separador, valor = linea.partition(":")
-        if separador:
-            campos[etiqueta.strip().casefold()] = valor.strip()
-
-    titulo = campos.get("título")
-    prioridad = campos.get("prioridad")
-    fecha = campos.get("fecha sugerida")
-    prioridades_validas = {"alta", "media", "baja"}
-    try:
-        if (
-            not titulo
-            or prioridad is None
-            or prioridad.casefold() not in prioridades_validas
-            or not fecha
-        ):
-            raise RespuestaIAInvalida("La IA devolvió una tarea con formato inválido.")
-        if fecha.casefold() != "sin fecha":
-            datetime.strptime(fecha, "%Y-%m-%d")
-    except (RespuestaIAInvalida, ValueError):
-        return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
-
-    salida = f"Título: {titulo}\nPrioridad: {prioridad}\nFecha sugerida: {fecha}"
-    return ResultadoAccion(codigo=0, salida=salida)
+    return validar_tarea_ia(propuesta)
