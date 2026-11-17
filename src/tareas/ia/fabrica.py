@@ -6,9 +6,8 @@ from tareas.ia.nulo import ProveedorNulo
 
 
 def crear_proveedor() -> ProveedorCentro | ProveedorNulo:
-    """Crea el proveedor del centro si hay clave y conectividad TLS."""
+    """Crea el proveedor del centro si hay clave configurada."""
     clave = obtener_clave()
     if not clave:
         return ProveedorNulo()
-    proveedor = ProveedorCentro(clave)
-    return proveedor if proveedor.disponible() else ProveedorNulo()
+    return ProveedorCentro(clave)
