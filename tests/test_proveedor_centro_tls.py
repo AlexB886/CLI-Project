@@ -81,3 +81,62 @@ def test_disponible_devuelve_false_si_falla_el_certificado():
         ),
     ):
         assert proveedor.disponible() is False
+
+
+def test_contexto_tls_usa_tareas_ca_bundle_configurada(monkeypatch, tmp_path):
+    certificado = tmp_path / "centro.crt"
+    certificado.write_text("certificado de prueba", encoding="utf-8")
+    monkeypatch.setenv("TAREAS_CA_BUNDLE", str(certificado))
+
+    contexto = MagicMock()
+    with patch(
+        "tareas.ia.centro.ssl.create_default_context",
+        return_value=contexto,
+    ) as crear_contexto:
+        assert crear_proveedor()._crear_contexto_tls() is contexto
+
+    crear_contexto.assert_called_once_with(cafile=str(certificado))
+
+
+def test_contexto_tls_usa_almacen_sistema_si_no_hay_variable(monkeypatch):
+    monkeypatch.delenv("TAREAS_CA_BUNDLE", raising=False)
+    contexto = MagicMock()
+
+    with patch(
+        "tareas.ia.centro.ssl.create_default_context",
+        return_value=contexto,
+    ) as crear_contexto:
+        assert crear_proveedor()._crear_contexto_tls() is contexto
+
+    crear_contexto.assert_called_once_with()
+
+
+def test_contexto_tls_mantiene_almacen_sistema_sin_ca(monkeypatch, tmp_path):
+    monkeypatch.delenv("TAREAS_CA_BUNDLE", raising=False)
+    contexto = MagicMock()
+
+    with patch(
+        "tareas.ia.centro.ssl.create_default_context",
+        return_value=contexto,
+    ) as crear_contexto:
+        assert crear_proveedor()._crear_contexto_tls() is contexto
+
+    crear_contexto.assert_called_once_with()
+
+
+def test_contexto_tls_se_reutiliza_en_la_instancia(monkeypatch, tmp_path):
+    certificado = tmp_path / "centro.crt"
+    certificado.write_text("certificado de prueba", encoding="utf-8")
+    monkeypatch.setenv("TAREAS_CA_BUNDLE", str(certificado))
+    contexto = MagicMock()
+    proveedor = crear_proveedor()
+
+    with patch(
+        "tareas.ia.centro.ssl.create_default_context",
+        return_value=contexto,
+    ) as crear_contexto:
+        primero = proveedor._crear_contexto_tls()
+        segundo = proveedor._crear_contexto_tls()
+
+    assert primero is segundo is contexto
+    crear_contexto.assert_called_once_with(cafile=str(certificado))

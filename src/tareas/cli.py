@@ -14,10 +14,12 @@ from rich.table import Table
 from tareas import __version__
 from tareas.acciones.registro import registro
 from tareas.configuracion import CargadorAccionesJSON
+from tareas.diagnostico import recolectar
 from tareas.errores import AccionNoValida, ConfigError
 from tareas.acciones.internas import RutaFueraDeBaseError
 from tareas.modelos import Accion, ResultadoAccion, TablaContenido
 from tareas.motor import Motor
+from tareas.visual import encabezado, estado, tabla_menu
 
 consola = Console()
 consola_err = Console(stderr=True)
@@ -181,7 +183,8 @@ def _acciones_iniciales(ruta: Path) -> list[Accion]:
 def crear_app(ruta_config: Path | None = None) -> typer.Typer:
     """Construye la app y registra un comando por cada acción del JSON."""
     app = typer.Typer(
-        help="tareas: automatiza tareas repetitivas con tus ficheros.",
+        help="[bold cyan]TAREAS[/bold cyan] · automatiza tareas repetitivas con tus ficheros.",
+        rich_markup_mode="rich",
         no_args_is_help=True,
         add_completion=False,
     )
@@ -210,6 +213,20 @@ def crear_app(ruta_config: Path | None = None) -> typer.Typer:
         """Muestra la versión instalada."""
         consola.print(f"tareas {__version__}")
 
+    @app.command()
+    def doctor(ctx: typer.Context) -> None:
+        """Comprueba la configuración sin contactar con la IA."""
+        motor = _motor(ctx)
+        _presentar(
+            ResultadoAccion(
+                datos=recolectar(
+                    motor.ruta,
+                    clave_configurada=bool(os.environ.get("TAREAS_API_KEY")),
+                    ruta_ca=os.environ.get("TAREAS_CA_BUNDLE"),
+                )
+            )
+        )
+
     @app.command("acciones")
     def acciones_cmd(ctx: typer.Context) -> None:
         """Muestra las acciones declaradas en acciones.json."""
@@ -220,6 +237,8 @@ def crear_app(ruta_config: Path | None = None) -> typer.Typer:
             _error(str(exc))
             raise typer.Exit(code=3) from exc
 
+        encabezado(consola, "acciones disponibles")
+
         if not lista:
             consola.print("No hay acciones declaradas.")
             return
@@ -229,14 +248,71 @@ def crear_app(ruta_config: Path | None = None) -> typer.Typer:
         tabla.add_column("Descripción")
         tabla.add_column("Tipo")
         tabla.add_column("Destructiva")
+        tabla.add_column("IA")
         for accion in lista:
             tabla.add_row(
                 escape(accion.nombre),
                 escape(accion.descripcion),
                 accion.tipo.value,
                 "sí" if accion.destructiva else "no",
+                "sí" if accion.ia else "no",
             )
         consola.print(tabla)
+
+    @app.command()
+    def menu(ctx: typer.Context) -> None:
+        """Muestra un menú numerado para ejecutar acciones sin recordar comandos."""
+        motor = _motor(ctx)
+        try:
+            lista = motor.acciones()
+        except ConfigError as exc:
+            _error(str(exc))
+            raise typer.Exit(code=3) from exc
+
+        if not lista:
+            estado(consola, "No hay acciones declaradas en la configuración.", "aviso")
+            return
+
+        encabezado(consola, "menú interactivo")
+        while True:
+            consola.print(tabla_menu(lista))
+            try:
+                elegida = typer.prompt(
+                    "Opción (0 para salir)", default="0", show_default=False
+                ).strip()
+            except (EOFError, KeyboardInterrupt, typer.Abort):
+                consola.print()
+                estado(consola, "Entrada no interactiva: saliendo del menú.", "aviso")
+                return
+
+            if elegida == "0":
+                estado(consola, "Hasta luego.", "info")
+                return
+            if not elegida.isdigit() or not 1 <= int(elegida) <= len(lista):
+                estado(consola, "Elige un número de la lista.", "aviso")
+                continue
+
+            accion = lista[int(elegida) - 1]
+            valores: list[str] = []
+            for parametro in accion.parametros:
+                if parametro.por_defecto is not None:
+                    continue
+                try:
+                    valor = typer.prompt(parametro.ayuda or parametro.nombre)
+                except (EOFError, KeyboardInterrupt, typer.Abort):
+                    estado(consola, "Entrada cancelada.", "aviso")
+                    return
+                valores.append(f"{parametro.nombre}={valor}")
+
+            try:
+                resultado = motor.ejecutar(accion.nombre, parametros=valores)
+            except (AccionNoValida, ConfigError, RutaFueraDeBaseError) as exc:
+                _error(str(exc))
+                continue
+
+            _presentar(resultado)
+            if resultado.codigo == 0 and not resultado.salida and not resultado.error:
+                estado(consola, "Acción completada.", "ok")
 
     @app.command("ejecutar")
     def ejecutar_cmd(

@@ -1,5 +1,6 @@
 """Motor que carga las acciones y las ejecuta."""
 
+from difflib import get_close_matches
 from pathlib import Path
 
 from tareas.acciones.registro import RegistroAcciones, registro as registro_global
@@ -65,8 +66,12 @@ class Motor:
             return self._acciones[nombre]
         except KeyError as exc:
             disponibles = ", ".join(sorted(self._acciones)) or "ninguna"
+            parecidas = get_close_matches(nombre, self._acciones, n=3, cutoff=0.5)
+            sugerencia = ""
+            if parecidas:
+                sugerencia = f" ¿Querías decir «{'», «'.join(parecidas)}»?"
             raise AccionNoValida(
-                f"La acción «{nombre}» no existe. Disponibles: {disponibles}."
+                f"La acción «{nombre}» no existe. Disponibles: {disponibles}.{sugerencia}"
             ) from exc
 
     def ejecutar(
