@@ -1,0 +1,32 @@
+# Comprobación automática: instala el proyecto con uv y ejecuta las pruebas
+# en Ubuntu, Windows y macOS. Ver rúbrica criterio 6 (Pruebas y calidad).
+name: CI
+
+on:
+  push:
+    branches: [main, mejoras-ia-cli]
+  pull_request:
+
+jobs:
+  test:
+    name: Pruebas en ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Copiar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Instalar uv y Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Instalar dependencias (incluidas las de desarrollo)
+        run: uv sync --frozen
+
+      - name: Ejecutar las pruebas
+        run: uv run pytest -q
