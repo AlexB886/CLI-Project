@@ -1,7 +1,7 @@
 # ADR 0001: Acciones declaradas en JSON externo
 
-- **Estado:** Aceptado
-- **Fecha:** 2026-11-09
+- **Estado:** Aceptado y aplicado
+- **Fecha:** 2026-11-09 (confinamiento de rutas implementado y verificado el 2026-11-23)
 
 ## Contexto
 
@@ -21,12 +21,12 @@ El motor leerá las acciones desde un JSON externo validado por
 `CargadorAccionesJSON`. `cli.py` construirá dinámicamente los comandos a partir
 de esa configuración y delegará la ejecución al `Motor`.
 
-Esta decisión es consciente de que la configuración controla rutas y, para
-acciones destructivas, puede seleccionar ficheros fuera del cwd. En el estado
-actual, `borrar` acepta rutas absolutas y rutas con `../`. Por tanto, un usuario
-con permisos suficientes podría borrar un fichero fuera de la carpeta que
-esperaba operar. Este riesgo no es una inyección de shell, pero sí una falta
-de confinamiento de rutas.
+La configuración controla rutas y, en acciones destructivas, podría seleccionar
+ficheros fuera del directorio esperado. Para cubrir ese riesgo, la propia
+decisión obliga a confinar `borrar` a una raíz autorizada: la acción rechaza
+rutas absolutas y cualquier `../` que salga de esa raíz, y conserva simulación y
+confirmación. El detalle verificado se describe más abajo en «Confinamiento de
+rutas».
 
 ## Consecuencias
 
@@ -41,19 +41,23 @@ de confinamiento de rutas.
 ### Negativas
 
 - Un `acciones.json` no confiable puede declarar comandos externos.
-- Las rutas destructivas no tienen todavía una raíz autorizada.
+- Toda acción destructiva debe someterse al confinamiento de rutas descrito
+  abajo (ya aplicado en `borrar`).
 - El esquema de configuración pasa a ser una interfaz que debe mantenerse y
   validarse.
 
-## Mitigación prevista
+## Confinamiento de rutas (implementado y verificado)
 
-En el siguiente cambio se confinará `borrar` a una raíz autorizada, elegida
-entre el cwd o una opción explícita `--base RUTA`. La validación deberá
+`borrar` opera siempre contra una raíz autorizada: el directorio actual o el que
+se indique con `--base RUTA`. La implementación (`src/tareas/acciones/internas.py`)
+y la verificación manual del 2026-11-23 confirman que:
 
-- resolver la ruta contra esa raíz;
-- rechazar traversal mediante `../`;
-- rechazar todas las rutas absolutas;
-- rechazar rutas de sistema y cualquier destino fuera de la raíz autorizada;
-- conservar `--dry-run` y la confirmación para toda operación destructiva.
+- rechaza **todas** las rutas absolutas (`RutaFueraDeBaseError`);
+- resuelve la ruta contra la raíz y **rechaza el traversal** `../` que salga de
+  ella (mediante `Path.relative_to`);
+- rechaza destinos fuera de la raíz autorizada;
+- trata las carpetas como caso de error (solo borra ficheros);
+- conserva `--dry-run`/`--simular` y la **confirmación interactiva** (o `--si`)
+  para toda operación destructiva, de modo que nada se borra sin avisar.
 
-Consecuencia: borrar ya no puede salirse de la raiz autorizada.
+Consecuencia: `borrar` no puede salirse de la raíz autorizada.
