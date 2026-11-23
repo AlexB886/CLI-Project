@@ -2,7 +2,7 @@
 
 CLI para automatizar tareas repetitivas con ficheros desde la terminal.
 
-**Estado:** Semana 1 y 2 cerradas · Capa IA (Semana 3) en desarrollo · v0.1
+**Estado:** v1.0.0 · motor de acciones configurable, capa IA del centro, 145 pruebas y CI multi-OS en verde.
 
 ---
 
@@ -12,8 +12,8 @@ CLI para automatizar tareas repetitivas con ficheros desde la terminal.
 2. **Para quién:** para mí y para mis compañeros de clase.
 3. **Cómo se usa:** `tareas ORDEN [RUTA] [opciones]` desde cualquier terminal.
 4. **Órdenes de la semana 1:** `tareas --help`, `tareas version`, `tareas listar [CARPETA]`.
-5. **Órdenes disponibles:** `listar`, `validar`, `ver`, `tamano`, `borrar`, `acciones`, `ejecutar NOMBRE`, `version`.
-6. **Acciones reales (5):** `listar`, `validar`, `ver`, `tamano`, `borrar`.
+5. **Órdenes disponibles:** `listar`, `validar`, `ver`, `tamano`, `borrar`, `resumir-ia`, `tarea-ia`, `acciones`, `ejecutar NOMBRE`, `doctor`, `menu`, `version`.
+6. **Acciones reales:** 5 tradicionales (`listar`, `validar`, `ver`, `tamano`, `borrar`) y 2 con IA (`resumir-ia`, `tarea-ia`).
 7. **Nunca hará:** borrar sin preguntar, ni tocar ficheros fuera de la raíz autorizada (confinamiento real, ver Seguridad).
 8. **Plataformas:** Linux primero; también Windows y macOS.
 9. **Códigos de salida:** `0` bien · `1` fallo al ejecutar · `2` uso incorrecto · `3` configuración inválida.
@@ -208,17 +208,21 @@ uv run tareas menu
 
 ## Proceso de desarrollo
 
-Desarrollo en `main` con commits atómicos y descriptivos (uno por paso). Las
-decisiones importantes se registran como ADR en `docs/adr/`. Flujo de ramas +
-pull requests y release etiquetada previstos para el cierre (ver Roadmap).
+Desarrollo en ramas de trabajo (p. ej. `mejoras-ia-cli`) con commits atómicos y
+descriptivos, integradas en `main` mediante pull request. Cada PR se valida con
+**GitHub Actions** (job `CI`: `uv sync --frozen` + `uv run pytest -q` en Ubuntu,
+Windows y macOS). Las decisiones importantes se registran como ADR en
+`docs/adr/`. Los cambios se preparan y prueban en local (`uv sync` + `uv run
+pytest -q`) antes de abrir el PR. El cierre lo marca la release etiquetada
+`v1.0.0` con `CHANGELOG.md` (ver Roadmap).
 
 ## Roadmap
 
-- [ ] Capa IA: acciones `resumir-ia` y `tarea-ia` + modo sin red.
-- [ ] Tests del camino feliz + 3 casos feos.
-- [ ] GitHub Actions para correr los tests en cada push.
-- [ ] Migrar a flujo de ramas + pull requests.
-- [ ] Release `v1.0` etiquetada con changelog.
+- [x] Capa IA: acciones `resumir-ia` y `tarea-ia` + modo sin red.
+- [x] Tests del camino feliz + casos feos (145 pruebas con pytest).
+- [x] GitHub Actions para correr los tests en cada push (Ubuntu, Windows, macOS).
+- [x] Flujo de ramas + pull requests hacia `main`.
+- [ ] Release `v1.0.0` etiquetada (versión y `CHANGELOG.md` preparados; **pendiente** de crear el tag y la GitHub Release).
 
 ## Licencia
 
