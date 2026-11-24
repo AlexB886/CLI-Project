@@ -4,6 +4,11 @@
 class ErrorProveedorIA(Exception):
     """Fallo de comunicación o de respuesta del proveedor de IA."""
 
+    def __init__(self, *args: object) -> None:
+        super().__init__(*args)
+        # Etapa de la cadena de repaso (p. ej. «fragmento 12 de 57») o "".
+        self.etapa: str = ""
+
 
 class AutenticacionProveedorIA(ErrorProveedorIA):
     """La clave no es válida o no tiene acceso al servicio del centro."""

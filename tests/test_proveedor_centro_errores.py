@@ -184,3 +184,80 @@ def test_respuesta_json_malformada_tiene_mensaje_humano():
     mensaje = str(capturado.value)
     assert "respuesta" in mensaje.casefold()
     assert "clave-sintetica-no-real" not in mensaje
+
+
+def _respuesta_cruda(crudo: bytes):
+    respuesta = MagicMock()
+    respuesta.__enter__.return_value = respuesta
+    respuesta.read.return_value = crudo
+    return respuesta
+
+
+@pytest.mark.parametrize(
+    ("crudo", "clave_etapa"),
+    [
+        (b"<html>502 Bad Gateway</html>", "respuesta no JSON"),
+        (b'{"error":"rate limit"}', "faltan los campos"),
+        (b'{"error":"rate limit","detalle":"clave-sintetica-no-real"}', "faltan los campos"),
+    ],
+)
+def test_etapa_de_fallo_identifica_la_respuesta_recibida(crudo, clave_etapa):
+    """Un error de forma debe decir QUÉ devolvió el servidor, sin exponer secretos."""
+    proveedor = crear_proveedor()
+
+    with patch("tareas.ia.centro.urlopen", return_value=_respuesta_cruda(crudo)):
+        with pytest.raises(ErrorProveedorIA) as capturado:
+            proveedor.generar_texto("hola", "contexto")
+
+    etapa = capturado.value.etapa
+    assert clave_etapa in etapa
+    assert "clave-sintetica-no-real" not in etapa
+
+
+def test_contenido_no_texto_y_vacio_tambien_anotan_etapa():
+    proveedor = crear_proveedor()
+
+    with patch(
+        "tareas.ia.centro.urlopen",
+        return_value=_respuesta_cruda(
+            json.dumps({"choices": [{"message": {"content": None}}]}).encode("utf-8")
+        ),
+    ):
+        with pytest.raises(ErrorProveedorIA) as capturado:
+            proveedor.generar_texto("hola", "contexto")
+    assert "no es texto" in capturado.value.etapa
+
+    with patch(
+        "tareas.ia.centro.urlopen",
+        return_value=_respuesta_cruda(
+            json.dumps({"choices": [{"message": {"content": "   "}}]}).encode("utf-8")
+        ),
+    ):
+        with pytest.raises(ErrorProveedorIA) as capturado:
+            proveedor.generar_texto("hola", "contexto")
+    assert "vacía" in capturado.value.etapa
+
+
+def test_error_de_formato_aborta_la_serie_sin_reintentar():
+    """Si el fragmento 2 devuelve basura, no se emite la petición 3."""
+    from tareas.repaso.fragmentacion import SintesisError, sintetizar
+    from tareas.ia.errores import ErrorProveedorIA
+
+    class IAQueFallaAlSegundo:
+        def __init__(self):
+            self.llamadas = 0
+
+        def generar_texto(self, peticion, contexto):
+            self.llamadas += 1
+            if self.llamadas == 2:
+                raise ErrorProveedorIA("La IA del centro devolvió una respuesta inválida.")
+            return "# Intro\n- ok"
+
+    ia = IAQueFallaAlSegundo()
+    texto_largo = "\n\n".join(["párrafo " + "x " * 900 for _ in range(6)])
+    try:
+        sintetizar(texto_largo, ia.generar_texto)
+        raise AssertionError("debería abortar")
+    except ErrorProveedorIA as exc:
+        assert exc.etapa.startswith("fragmento 2 de ")
+    assert ia.llamadas == 2  # ni un intento más: sin reintentos automáticos

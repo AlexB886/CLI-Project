@@ -13,6 +13,12 @@ from tareas.ia.errores import (
     TimeoutProveedorIA,
 )
 from tareas.modelos import ContextoAccion, ResultadoAccion, TablaContenido
+from tareas.repaso.contenidos import construir_documento, detectar_esquemas
+from tareas.repaso.esquemas import Esquema, detectar as detectar_esquema_texto
+from tareas.repaso.escritorio import EscritorioNoDisponible, abrir_en_writer
+from tareas.repaso.fragmentacion import SintesisError, sintetizar
+from tareas.repaso.lectura import cargar_documentos
+from tareas.repaso.odt import escribir_odt
 
 MENSAJE_OFFLINE_IA = "IA no disponible (modo offline): sigo con las acciones sin IA"
 
@@ -364,3 +370,228 @@ def tarea_ia(ctx: ContextoAccion) -> ResultadoAccion:
         )
 
     return validar_tarea_ia(propuesta)
+
+
+def _con_etapa(mensaje: str, exc: Exception) -> str:
+    """Añade la etapa del fallo al mensaje humano, sin exponer secretos."""
+    etapa = getattr(exc, "etapa", "") or ""
+    return f"{mensaje} (etapa: {etapa})" if etapa else mensaje
+
+
+def _fuera_de_base(ruta: Path, base: Path) -> bool:
+    """True si la ruta (ya resuelta) escapa de la raíz autorizada."""
+    try:
+        ruta.relative_to(base)
+    except ValueError:
+        return True
+    return False
+
+
+def _objetivo_normal(objetivo: str | None) -> str:
+    valor = (objetivo or "").strip().casefold()
+    equivalentes = {
+        "test": "examen tipo test",
+        "tipo test": "examen tipo test",
+        "tipo_test": "examen tipo test",
+        "desarrollo": "examen de desarrollo",
+        "examen desarrollo": "examen de desarrollo",
+        "general": "repaso general",
+        "": "repaso general",
+    }
+    return equivalentes.get(valor, objetivo or "repaso general")
+
+
+def _ruta_salida(requisitada: Path, base: Path) -> Path:
+    """Resuelve la salida dentro de la raíz autorizada, como hace `borrar`."""
+    ruta = requisitada
+    if not ruta.is_absolute():
+        ruta = base / ruta
+    ruta = ruta.resolve()
+    if _fuera_de_base(ruta, base):
+        raise RutaFueraDeBaseError(
+            f"La ruta de salida «{requisitada}» queda fuera de la raíz autorizada «{base}»."
+        )
+    return ruta
+
+
+def _esquema_de_bloques(
+    maestro: str, titulo_repaso: str, maximo_nodos: int = 5
+) -> Esquema | None:
+    """Esquema local de seguridad si la IA no devolvió ninguno.
+
+    Usa únicamente los títulos de sección del maestro y su primera frase:
+    contenido derivado de los apuntes, nunca inventado.
+    """
+    bloques = re.findall(r"^#{1,3}\s+(.*)$", maestro, flags=re.MULTILINE)
+    cuerpos = re.split(r"^#{1,3}\s+.*$", maestro, flags=re.MULTILINE)[1:]
+    omitidas = {"esquema"}
+    nodos: list[tuple[str, str]] = []
+    for titulo, cuerpo in zip(bloques, cuerpos):
+        limpio = titulo.strip(" :·-")
+        if limpio.casefold() in omitidas:
+            continue
+        primera = next((linea.strip() for linea in cuerpo.splitlines() if linea.strip()), "")
+        if len(primera) > 90:
+            primera = primera[:90].rsplit(" ", 1)[0] + "…"
+        nodos.append((limpio, primera))
+    if len(nodos) < 2:
+        return None
+    raiz = (titulo_repaso, "Documento de repaso generado a partir de los apuntes")
+    especificacion = "esquema:\n| \n".join(
+        [f"{raiz[0]} :: {raiz[1]}"] + [f"{t} :: {d}" if d else t for t, d in nodos[:maximo_nodos]]
+    )
+    return detectar_esquema_texto(especificacion)
+
+
+def _titulo_documento(nombre: str) -> str:
+    """Tema deducido del nombre del documento (sin inventar datos)."""
+    limpio = re.sub(r"[_\-·]+", " ", nombre).strip()
+    return limpio or "Apuntes"
+
+
+@registrar("repaso-ia")
+def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
+    """Genera un documento de repaso ODT con IA y lo abre en LibreOffice Writer."""
+    brutos = ctx.parametros.get("archivos") or []
+    if isinstance(brutos, (str, Path)):
+        brutos = [brutos]
+    archivos = [Path(str(r)).expanduser() for r in brutos]
+    if not archivos:
+        return ResultadoAccion(codigo=1, error="Indica al menos un documento de apuntes.")
+
+    base = Path(str(ctx.parametros.get("base") or Path.cwd())).expanduser().resolve()
+    for ruta in archivos:
+        absoluta = ruta if ruta.is_absolute() else base / ruta
+        if _fuera_de_base(absoluta.resolve(), base):
+            return ResultadoAccion(
+                codigo=1,
+                error=f"El apunte «{ruta}» está fuera de la raíz autorizada «{base}».",
+            )
+
+    proveedor = ctx.proveedor_ia
+    if proveedor is None:
+        return ResultadoAccion(codigo=0, salida=MENSAJE_OFFLINE_IA)
+
+    informes: list[str] = []
+    documentos = cargar_documentos(archivos, informes)
+    ilegibles = [r for r in archivos if all(d.origen != r for d in documentos)]
+
+    def avisos(texto: str) -> None:
+        print(texto, flush=True)
+
+    if ilegibles:
+        nombres = ", ".join(str(r) for r in ilegibles)
+        avisos(f"Atención: no se pudieron leer {nombres}.")
+    if not documentos:
+        detalle = " ".join(informes) or "Ningún documento contenía texto legible."
+        return ResultadoAccion(
+            codigo=1,
+            error=f"No hay apuntes que repasar: {detalle}",
+        )
+
+    objetivo = _objetivo_normal(str(ctx.parametros.get("objetivo") or ""))
+
+    nombre_parametro = str(ctx.parametros.get("nombre") or "").strip()
+    titulo = nombre_parametro or documentos[0].origen.stem
+    nombre = re.sub(r"[^\w\- ]+", "", titulo).strip().replace(" ", "-")
+    salida = ctx.parametros.get("salida")
+    destino = _ruta_salida(
+        Path(str(salida)) if salida else documentos[0].origen.parent, base
+    )
+    if destino.suffix.lower() == ".odt":
+        destino = destino.parent
+
+    ruta_final = destino / f"{nombre}.odt"
+    numero = 1
+    while ruta_final.exists():
+        numero += 1
+        ruta_final = destino / f"{nombre}_{numero}.odt"
+
+    if ctx.simular:
+        nombres = ", ".join(d.origen.name for d in documentos)
+        aviso_omisiones = f" Omitidos: {len(ilegibles)}." if ilegibles else ""
+        return ResultadoAccion(
+            codigo=0,
+            salida=(
+                f"[simular] Se generaría «{ruta_final}» a partir de {nombres} "
+                f"con objetivo «{objetivo}» "
+                f"y se abriría en LibreOffice Writer.{aviso_omisiones}"
+            ),
+        )
+
+    texto = "\n\n".join(d.texto for d in documentos)
+    try:
+        maestro = sintetizar(
+            texto,
+            generar=proveedor.generar_texto,
+            objetivo=objetivo,
+            informar=avisos,
+        )
+    except SintesisError as exc:
+        return ResultadoAccion(codigo=1, error=f"{exc} {exc.detalle}".strip())
+    except AutenticacionProveedorIA as exc:
+        return ResultadoAccion(
+            codigo=1,
+            error=_con_etapa(
+                "La clave de la IA del centro no es válida o no tiene acceso. Revisa la configuración.",
+                exc,
+            ),
+        )
+    except TimeoutProveedorIA as exc:
+        return ResultadoAccion(
+            codigo=1,
+            error=_con_etapa(
+                "La IA del centro agotó el tiempo de espera. Inténtalo de nuevo.", exc
+            ),
+        )
+    except ErrorProveedorIA as exc:
+        return ResultadoAccion(
+            codigo=1,
+            error=_con_etapa(
+                "La IA del centro devolvió una respuesta inválida.", exc
+            ),
+        )
+
+    esquemas = detectar_esquemas(maestro)
+    if not esquemas:
+        respaldo = _esquema_de_bloques(maestro, f"Repaso: {titulo}")
+        if respaldo is not None:
+            esquemas = [respaldo]
+
+    secciones = construir_documento(maestro, esquemas)
+    fuentes = [d.origen.name for d in documentos]
+    generado = datetime.now().strftime("%d/%m/%Y %H:%M")
+
+    try:
+        escribir_odt(
+            ruta_final,
+            f"Repaso: {titulo}",
+            f"Objetivo de estudio: {objetivo}",
+            secciones,
+            esquemas,
+            fuentes,
+            generado,
+        )
+    except OSError as exc:
+        return ResultadoAccion(codigo=1, error=f"No se pudo escribir «{ruta_final}»: {exc}")
+
+    mensajes = [f"Repaso generado en «{ruta_final}»."]
+    if numero > 1:
+        mensajes.append(
+            f"«{nombre}.odt» ya existía; se guardó como «{ruta_final.name}» sin tocarlo."
+        )
+    for informe in informes:
+        mensajes.append(f"Aviso: {informe}")
+
+    abrir = ctx.parametros.get("abrir", True)
+    if abrir:
+        try:
+            programa = abrir_en_writer(ruta_final)
+            mensajes.append(f"Abriendo el repaso en {programa}…")
+        except EscritorioNoDisponible as exc:
+            mensajes.append(f"No se pudo abrir automáticamente: {exc} Ruta: {ruta_final}")
+    else:
+        mensajes.append(f"Abre el repaso con: libreoffice --writer {ruta_final}")
+
+    return ResultadoAccion(codigo=0, salida="\n".join(mensajes))
+

@@ -5,6 +5,35 @@ Todas las cambios notables de este proyecto se documentan en este fichero.
 El formato sigue [Keep a Changelog](https://keepachangelog.com/es/1.1.0/) y el
 proyecto se adhiere al [versionado semántico](https://semver.org/lang/es/).
 
+## [Sin publicar]
+
+### Añadido
+
+- **Acción `repaso-ia`**: genera un documento de repaso ODT a partir de uno o
+  varios apuntes (`.txt/.md/.rst/.csv`, `.pdf`, `.docx`, `.odt`, `.rtf`,
+  `.html`) con portada, resumen por apartados, conceptos clave, explicaciones
+  didácticas, tablas comparativas, esquemas dibujados localmente, errores
+  frecuentes, repaso final y preguntas de examen. Se abre en LibreOffice
+  Writer al terminar. Parámetros: `objetivo`, `salida`, `nombre` y `abrir`.
+- Documento largo con síntesis por etapas (fragmentos → maestro coherente) y
+  progreso visible por consola.
+- Lectura de PDF con tres conversores locales encadenados sin bucles:
+  `pdftotext` → LibreOffice → Ghostscript; siempre en directorio temporal y
+  sin tocar el original.
+- Nuevos módulos en `src/tareas/repaso/`: lectura, fragmentación, esquemas,
+  contenidos, ODT y apertura en el escritorio, con dependencias solo de la
+  biblioteca estándar.
+- Diagnóstico de respuestas inválidas del proveedor: la excepción anota la
+  etapa (`fragmento N de M`, `documento final`, extracto de la respuesta) con
+  las credenciales saneadas, y la serie de síntesis aborta sin reintentos.
+- Simulación (`--dry-run`) propia por acción: `repaso-ia` previsualiza sin
+  leer ni escribir, y las acciones sin simulación propia obtienen una
+  previsualización neutra.
+- Ayuda por acción: `tareas repaso-ia --help` lista los parámetros declarados.
+- 54 pruebas nuevas (`tests/test_repaso_*.py`): lectura, fragmentación,
+  esquemas, ODT, contenidos, apertura, la acción y un test de integración;
+  sin IA real ni LibreOffice real.
+
 ## [1.0.0] - 2026-11-23
 
 Primer release estable del CLI `tareas`: motor de acciones configurable desde

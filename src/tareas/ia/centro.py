@@ -1,8 +1,8 @@
-
 """Proveedor compatible con la API del centro."""
 
 import json
 import os
+import re
 import socket
 import ssl
 from urllib.error import HTTPError, URLError
@@ -22,12 +22,47 @@ _MENSAJE_TIMEOUT = "La IA del centro agotó el tiempo de espera."
 _MENSAJE_RESPUESTA_INVALIDA = "La IA del centro devolvió una respuesta inválida."
 
 
+def _bytes(valor: bytes | str) -> bytes:
+    if isinstance(valor, bytes):
+        return valor
+    return str(valor).encode("utf-8", errors="replace")
+
+
+def _sanear(etapa: str) -> str:
+    """Quita de la etapa cualquier texto que se parezca a una credencial."""
+    texto = re.sub(
+        r"(?i)(bearer\s+|api[_-]?key[\"']?\s*[:=]\s*[\"']?|authorization[\"']?\s*[:=]\s*[\"']?)"
+        r"[^\s,;\"'}]+",
+        r"\1[oculto]",
+        etapa,
+    )
+    texto = re.sub(r"\b(sk|key|token)[-_][A-Za-z0-9]{6,}\b", "[oculto]", texto)
+    texto = re.sub(r"[A-Za-z0-9+/=]{40,}", "[fragmento-omitido]", texto)
+    return texto
+
+
+def _resumen_respuesta(cruda: bytes, maximo: int = 300) -> str:
+    """Extracto legible de la respuesta cruda, apto para depurar fallos.
+
+    Se limita a `maximo` caracteres, se sanean posibles credenciales y solo
+    sirve para diagnosticar forma de respuestas, nunca para volcar contenido.
+    """
+    texto = cruda.decode("utf-8", errors="replace")
+    texto = " ".join(texto.split())
+    if len(texto) > maximo:
+        texto = texto[:maximo] + "…"
+    return _sanear(texto)
+
+
 class ProveedorCentro:
     """Cliente para el servicio Qwen del centro."""
 
     nombre = "centro"
     endpoint = "https://10.100.22.107/llmapi/v1"
     modelo = "Qwen38-DualSpark-low"
+
+    # Secretos conocidos que nunca deben aparecer en un mensaje de error.
+    _TOKENS_SENSIBLES: tuple[str, ...] = ()
 
     def __init__(self, clave: str, timeout: float = 120.0) -> None:
         if not clave:
@@ -36,6 +71,7 @@ class ProveedorCentro:
         self._clave = clave
         self._timeout = timeout
         self._contexto_tls: ssl.SSLContext | None = None
+        self._TOKENS_SENSIBLES = (clave,)
 
     def _crear_contexto_tls(self) -> ssl.SSLContext:
         """Crea una vez el contexto TLS y lo reutiliza en las conexiones."""
@@ -68,6 +104,90 @@ class ProveedorCentro:
 
         return ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA)
 
+    def _resumen(self, cruda: bytes) -> str:
+        """Extracto saneado: incluye la propia clave entre los términos a ocultar."""
+        resumen = _resumen_respuesta(cruda)
+        for token in self._TOKENS_SENSIBLES:
+            if token:
+                resumen = resumen.replace(token, "[oculto]")
+        return resumen
+
+    def _solicitar(self, peticion: str, contexto: str) -> tuple[dict, bytes]:
+        """Envía la petición de chat y devuelve el JSON y el cuerpo crudo."""
+        cuerpo = json.dumps(
+            {
+                "model": self.modelo,
+                "messages": [
+                    {"role": "system", "content": contexto},
+                    {"role": "user", "content": peticion},
+                ],
+            }
+        ).encode("utf-8")
+
+        solicitud = Request(
+            f"{self.endpoint}/chat/completions",
+            data=cuerpo,
+            headers={
+                "Authorization": f"Bearer {self._clave}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(
+                solicitud,
+                timeout=self._timeout,
+                context=self._crear_contexto_tls(),
+            ) as respuesta:
+                crudo = respuesta.read()
+
+        except (
+            HTTPError,
+            URLError,
+            TimeoutError,
+            socket.timeout,
+            OSError,
+        ) as exc:
+            raise self._traducir_error(exc) from exc
+
+        try:
+            datos = json.loads(crudo.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            error = ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA)
+            error.etapa = f"respuesta no JSON ({self._resumen(crudo)})"
+            raise error from exc
+
+        return datos, crudo
+
+    def _contenido(self, datos: dict, referencia: bytes | str = "") -> str:
+        """Valida la estructura de chat y devuelve el contenido en texto.
+
+        `referencia` es el cuerpo crudo de la respuesta, que solo se usa para
+        construir el mensaje de diagnóstico cuando la estructura es inválida.
+        """
+        error_invalida = ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA)
+        try:
+            texto = datos["choices"][0]["message"]["content"]
+
+        except (KeyError, IndexError, TypeError) as exc:
+            error_invalida.etapa = (
+                f"faltan los campos de la respuesta ({self._resumen(_bytes(referencia))})"
+            )
+            raise error_invalida from exc
+
+        if not isinstance(texto, str):
+            error_invalida.etapa = f"el contenido no es texto ({type(texto).__name__})"
+            raise error_invalida
+
+        texto = texto.strip()
+
+        if not texto:
+            error_invalida.etapa = f"respuesta vacía ({self._resumen(_bytes(referencia))})"
+            raise error_invalida
+
+        return texto
+
     def disponible(self) -> bool:
         """Comprueba conexión TCP y confianza TLS."""
         url = urlsplit(self.endpoint)
@@ -94,56 +214,23 @@ class ProveedorCentro:
         contexto: str,
     ) -> list[dict]:
         """Envía la petición y valida que la respuesta sea una lista JSON."""
-        cuerpo = json.dumps(
-            {
-                "model": self.modelo,
-                "messages": [
-                    {"role": "system", "content": contexto},
-                    {"role": "user", "content": peticion},
-                ],
-            }
-        ).encode("utf-8")
-
-        solicitud = Request(
-            f"{self.endpoint}/chat/completions",
-            data=cuerpo,
-            headers={
-                "Authorization": f"Bearer {self._clave}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
+        datos, crudo = self._solicitar(peticion, contexto)
+        contenido = self._contenido(datos, crudo)
 
         try:
-            with urlopen(
-                solicitud,
-                timeout=self._timeout,
-                context=self._crear_contexto_tls(),
-            ) as respuesta:
-                datos = json.loads(respuesta.read().decode("utf-8"))
-
-        except (
-            HTTPError,
-            URLError,
-            TimeoutError,
-            socket.timeout,
-            OSError,
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-        ) as exc:
-            raise self._traducir_error(exc) from exc
-
-        try:
-            contenido = datos["choices"][0]["message"]["content"]
             propuestas = json.loads(contenido)
 
-        except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            raise ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA) from exc
+        except json.JSONDecodeError as exc:
+            error = ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA)
+            error.etapa = f"propuestas no JSON ({self._resumen(contenido.encode('utf-8', 'replace'))})"
+            raise error from exc
 
         if not isinstance(propuestas, list) or not all(
             isinstance(item, dict) for item in propuestas
         ):
-            raise ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA)
+            error = ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA)
+            error.etapa = "propuestas fuera de formato"
+            raise error
 
         if not propuestas:
             raise ErrorProveedorIA(
@@ -154,59 +241,5 @@ class ProveedorCentro:
 
     def generar_texto(self, peticion: str, contexto: str) -> str:
         """Genera texto libre y valida la respuesta."""
-        cuerpo = json.dumps(
-            {
-                "model": self.modelo,
-                "messages": [
-                    {"role": "system", "content": contexto},
-                    {"role": "user", "content": peticion},
-                ],
-            }
-        ).encode("utf-8")
-
-        solicitud = Request(
-            f"{self.endpoint}/chat/completions",
-            data=cuerpo,
-            headers={
-                "Authorization": f"Bearer {self._clave}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
-        )
-
-        try:
-            with urlopen(
-                solicitud,
-                timeout=self._timeout,
-                context=self._crear_contexto_tls(),
-            ) as respuesta:
-                datos = json.loads(respuesta.read().decode("utf-8"))
-
-        except (
-            HTTPError,
-            URLError,
-            TimeoutError,
-            socket.timeout,
-            OSError,
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-        ) as exc:
-            raise self._traducir_error(exc) from exc
-
-        try:
-            texto = datos["choices"][0]["message"]["content"]
-
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA) from exc
-
-        if not isinstance(texto, str):
-            raise ErrorProveedorIA(_MENSAJE_RESPUESTA_INVALIDA)
-
-        texto = texto.strip()
-
-        if not texto:
-            raise ErrorProveedorIA(
-                "La IA del centro devolvió una respuesta vacía."
-            )
-
-        return texto
+        datos, crudo = self._solicitar(peticion, contexto)
+        return self._contenido(datos, crudo)
