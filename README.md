@@ -149,7 +149,8 @@ src/tareas/
 ├── parametros.py    # parseo de argumentos
 ├── configuracion.py # carga y valida el JSON
 ├── errores.py       # excepciones propias con mensajes humanos
-└── ia/              # proveedor IA (hueco, ProveedorNulo)
+├── repaso/          # lectura, síntesis, esquemas, ODT y apertura en Writer
+└── ia/              # proveedor IA (interfaz, ProveedorNulo, proveedor del centro)
 docs/adr/            # decisiones de arquitectura
 .opencode/           # skill y comando del agente
 ```
@@ -198,6 +199,34 @@ del CLI siguen funcionando sin conexión a Qwen.
 uv run tareas doctor
 uv run tareas menu
 ```
+
+## repaso-ia: apuntes → documento de repaso en LibreOffice
+
+`repaso-ia` convierte uno o varios documentos de apuntes en un **repaso
+educativo en formato ODT** (portada, resumen por apartados, conceptos clave,
+tablas comparativas, esquemas dibujados localmente, errores frecuentes, repaso
+final y preguntas de examen) y lo abre en LibreOffice Writer al terminar.
+
+```bash
+uv run tareas repaso-ia tema3.pdf                                  # un PDF
+uv run tareas repaso-ia apuntes.md resumen.txt                      # varios
+uv run tareas repaso-ia tema.pdf -p objetivo="examen tipo test"     # objetivo
+uv run tareas repaso-ia tema.pdf -p salida=repasos -p nombre=final  # destino
+uv run tareas repaso-ia tema.pdf --dry-run                          # simular
+```
+
+- Formatos leídos: `.txt/.md/.rst/.csv`, `.pdf` (con `pdftotext` o LibreOffice),
+  `.docx/.odt/.rtf/.html` (los ZIP con XML se parsean directamente).
+- Los originales **nunca se modifican**; el repaso se escribe junto al primer
+  apunte (o en `salida=`). Si el nombre ya existe, se guarda con sufijo `_2`,
+  sin sobrescribir.
+- Con documentos largos la IA trabaja por etapas: sintetiza fragmentos y
+  redacta un maestro único; se muestra progreso por consola.
+- Si la IA falla (clave, tiempo de espera o sin conexión) el error se informa
+  en humano y no se genera ningún fichero. Si LibreOffice no está instalado,
+  se indica la ruta para abrirlo a mano.
+- Requiere lo mismo que las demás acciones de IA: `TAREAS_API_KEY` válida y,
+  si la CA no es pública, `TAREAS_CA_BUNDLE`.
 
 ## Artefactos de IA (sesión 2)
 

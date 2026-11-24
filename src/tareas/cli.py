@@ -126,6 +126,13 @@ def _ejecutar_accion(
 
 
 def _crear_comando(accion: Accion):
+    ayuda_parametros = "; ".join(
+        f"{p.nombre} ({p.tipo}): {p.ayuda}" for p in accion.parametros if p.ayuda
+    )
+    descripcion = accion.descripcion
+    if ayuda_parametros:
+        descripcion = f"{descripcion}\n\nParámetros: {ayuda_parametros}"
+
     def comando(
         ctx: typer.Context,
         args: Annotated[
@@ -163,10 +170,12 @@ def _crear_comando(accion: Accion):
     ) -> None:
         if base is not None:
             parametros = [*(parametros or []), f"base={base}"]
+        if dry_run:
+            parametros = [*(parametros or []), "simular=1"]
         _ejecutar_accion(ctx, accion.nombre, args, parametros, dry_run, si)
 
     comando.__name__ = f"comando_{accion.nombre.replace('-', '_')}"
-    comando.__doc__ = accion.descripcion
+    comando.__doc__ = descripcion
     return comando
 
 
