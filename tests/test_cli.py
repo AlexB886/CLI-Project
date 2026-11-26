@@ -17,6 +17,12 @@ def escribir_acciones(ruta, acciones):
     )
 
 
+import re
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
 def salida(resultado) -> str:
     """Reúne stdout y stderr del Result de forma explícita y portable.
 
@@ -24,8 +30,13 @@ def salida(resultado) -> str:
     `resultado.output` solo incluye el stderr cuando el CliRunner mezcla ambos
     flujos, lo que no está garantizado entre versiones de Typer/Click ni entre
     plataformas. Sumar stdout y stderr hace el test robusto sin ocultar fallos.
+
+    En CI (GITHUB_ACTIONS/FORCE_COLOR) Rich/Typer fuerza colores ANSI y el
+    resaltado puede partir tokens (p. ej. ``--no-existe``) con códigos de
+    escape; se eliminan para que las aserciones de contenido sean estables.
     """
-    return f"{resultado.stdout}{resultado.stderr}"
+    texto = f"{resultado.stdout}{resultado.stderr}"
+    return _ANSI_RE.sub("", texto)
 
 
 def test_cli_registra_y_ejecuta_accion_desde_json_temporal(tmp_path, monkeypatch):
