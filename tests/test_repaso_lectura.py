@@ -13,34 +13,42 @@ from tareas.repaso import lectura
 from tareas.repaso.lectura import LecturaError, cargar_documentos, extraer_texto
 
 
-def _simulador_ghostscript(directorios: dict[str, str]) -> tuple[str, str]:
-    """Crea un falso ejecutable `gs` que imita a `-sDEVICE=txtwrite -o SALIDA ENTRADA`.
+def _simulador_ghostscript(tmp_path: Path) -> str:
+    """Crea un falso ejecutable `gs` portable y devuelve su ruta absoluta.
 
-    Devuelve (ruta_del_simulador, ruta_del_pdf_extraido). El simulador extrae el
-    texto de `BT ... Tj ET` del PDF con la misma codificación latin-1 que usa
-    Ghostscript, escribe en la salida indicada y no modifica el original.
+    Imita a `gs -sDEVICE=txtwrite -o SALIDA ENTRADA`: extrae el texto de los
+    operadores `BT ... Tj ET` del PDF (con la codificación latin-1 que usa
+    Ghostscript), lo escribe en SALIDA y no toca el original. El wrapper embebe
+    la ruta absoluta del script, así que funciona aunque el PATH del runner no
+    traiga utilidades como `dirname` (Ubuntu/macOS) o en Windows.
     """
-    carpeta = Path(directorios["tmp_path"]) / "falso-gs"
+    carpeta = tmp_path / "falso-gs"
     carpeta.mkdir()
-    guion = """\
-import re, sys
-argv = sys.argv[1:]
-salida = argv[argv.index("-o") + 1]
-entrada = argv[-1]
-bytes_pdf = open(entrada, "rb").read()
-texto = " ".join(
-    m.group(1).decode("latin-1") for m in re.finditer(rb"\\((.*?)\\)\\s*Tj", bytes_pdf)
-)
-open(salida, "w", encoding="utf-8").write(texto + "\\n")
-"""
-    simulador = carpeta / ("gs" + (".bat" if os.name == "nt" else ""))
+    guion = carpeta / "gs.py"
+    guion.write_text(
+        "import re, sys\n"
+        "argv = sys.argv[1:]\n"
+        'salida = argv[argv.index("-o") + 1]\n'
+        "entrada = argv[-1]\n"
+        'datos = open(entrada, "rb").read()\n'
+        "texto = ' '.join(\n"
+        '    m.group(1).decode("latin-1") for m in re.finditer(rb"\\((.*?)\\)\\s*Tj", datos)\n'
+        ")\n"
+        'open(salida, "w", encoding="utf-8").write(texto + "\\n")\n',
+        encoding="utf-8",
+    )
     if os.name == "nt":
-        simulador.write_text(f'@echo off\r\n"{sys.executable}" "%~dp0gs.py" %*\r\n', encoding="utf-8")
+        simulador = carpeta / "gs.bat"
+        simulador.write_text(
+            f'@echo off\r\n"{sys.executable}" "{guion}" %*\r\n', encoding="utf-8"
+        )
     else:
-        simulador.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$(dirname "$0")/gs.py" "$@"\n')
+        simulador = carpeta / "gs"
+        simulador.write_text(
+            f'#!/bin/sh\nexec "{sys.executable}" "{guion}" "$@"\n', encoding="utf-8"
+        )
         simulador.chmod(0o755)
-    (carpeta / "gs.py").write_text(guion, encoding="utf-8")
-    return str(simulador), str(carpeta / "extracted.txt")
+    return str(simulador)
 
 
 def _pdf_sencillo(ruta: Path) -> Path:
@@ -177,7 +185,8 @@ def test_pdf_sin_poppler_usa_ghostscript(tmp_path: Path, monkeypatch) -> None:
     pdf = _pdf_sencillo(tmp_path / "apuntes con espacios ñ.pdf")
     antes = pdf.read_bytes()
 
-    ruta_simulador, _ = _simulador_ghostscript({"tmp_path": str(tmp_path)})
+    ruta_simulador = _simulador_ghostscript(tmp_path)
+    # Solo `gs` está disponible (sin pdftotext ni LibreOffice) y es el simulador.
     monkeypatch.setattr(lectura.shutil, "which", lambda n: ruta_simulador if n == "gs" else None)
     monkeypatch.setattr(lectura, "_localizar_convertidor", lambda nombres: None)
     texto = extraer_texto(pdf)
@@ -223,7 +232,10 @@ def test_fallbacks_de_pdf_se_prueban_en_orden_y_sin_bucles(tmp_path: Path, monke
         extraer_texto(pdf)
     assert intentos.count("pdftotext") == 1
     assert intentos.count("libreoffice") <= 2
-    assert intentos.count("gs") == 1
+    # Ghostscript se invoca con la ruta resuelta por which (no el literal «gs»):
+    # un único intento, contado por la ruta exacta que devolvió el mock.
+    assert intentos.count("/usr/bin/gs") == 1
+    assert "gs" not in intentos  # nunca se relanza por nombre suelto
 
 
 def test_sin_ningun_conversor_de_pdf_informa_humanamente(tmp_path: Path, monkeypatch) -> None:

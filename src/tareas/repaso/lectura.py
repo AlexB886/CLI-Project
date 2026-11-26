@@ -263,8 +263,11 @@ def _leer_pdf(ruta: Path) -> str:
     orden = _localizar_convertidor(("libreoffice", "soffice"))
     if orden is not None:
         intentos.append(("LibreOffice", lambda r: _convertir_pdf_con_libreoffice(r, orden)))
-    if shutil.which("gs"):
-        intentos.append(("Ghostscript", _convertir_pdf_con_ghostscript))
+    ruta_gs = shutil.which("gs")
+    if ruta_gs:
+        intentos.append(
+            ("Ghostscript", lambda r, _gs=ruta_gs: _convertir_pdf_con_ghostscript(r, _gs))
+        )
 
     if not intentos:
         raise LecturaError(
@@ -287,14 +290,20 @@ def _leer_pdf(ruta: Path) -> str:
     )
 
 
-def _convertir_pdf_con_ghostscript(ruta: Path) -> str:
-    """Convierte el PDF a texto con Ghostscript (fallback local sin permisos)."""
+def _convertir_pdf_con_ghostscript(ruta: Path, ejecutable: str = "gs") -> str:
+    """Convierte el PDF a texto con Ghostscript (fallback local sin permisos).
+
+    `ejecutable` es la ruta resuelta por `shutil.which` en `_leer_pdf`; usarla
+    (en lugar del literal «gs») evita relanzar el binario por nombre y permite
+    probar el fallback con un simulador portable, sin depender de que `gs`
+    esté instalado en el sistema.
+    """
     with tempfile.TemporaryDirectory(prefix="tareas-repaso-") as temporal:
         salida = Path(temporal) / "texto.txt"
         try:
             resultado = subprocess.run(
                 [
-                    "gs", "-dBATCH", "-dNOPAUSE", "-q",
+                    ejecutable, "-dBATCH", "-dNOPAUSE", "-q",
                     "-sDEVICE=txtwrite", "-o", str(salida), str(ruta),
                 ],
                 capture_output=True,
