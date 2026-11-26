@@ -32,7 +32,7 @@ def test_texto_corto_va_directo_a_la_ia() -> None:
 
 
 def test_texto_largo_se_fragmenta_y_sintetiza_por_etapas() -> None:
-    parrafos = ["Palabra " + "x " * 900 for _ in range(6)]
+    parrafos = ["Palabra " + "x " * 3500 for _ in range(6)]
     texto = "\n\n".join(parrafos)
     fragmentos = fragmentar(texto)
     assert len(fragmentos) >= 2
@@ -83,7 +83,7 @@ def test_progresso_se_informa_para_el_usuario() -> None:
     texto = "\n\n".join(["contenido " * 800 for _ in range(4)])
     sintetizar(texto, ia.generar_texto, informar=visto.append)
     assert any("fragmento" in m.lower() for m in visto)
-    assert any("fragmento" in m.lower() and "1 de" in m for m in visto)
+    assert any("Sintetizando" in m for m in visto)
 
 
 def test_maestro_en_texto_plano_gana_estructura() -> None:

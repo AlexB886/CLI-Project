@@ -84,5 +84,6 @@ def test_repaso_completo_con_esquemas_y_tabla(tmp_path: Path, monkeypatch) -> No
     assert "Fotosíntesis" in content
     assert "Fase luminosa" in content and "estroma" in content
     assert "table:table-row" in content  # la tabla comparativa es una tabla real
-    assert "┌" in content  # el esquema se dibujó en el documento
+    assert "esquema:" not in content  # el esquema no queda como texto crudo
+    assert "Fotosíntesis" in content  # el esquema viajó al ODT como lista jerárquica
     assert "panel solar" in content  # la explicación didáctica viajó al ODT

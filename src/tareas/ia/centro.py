@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+from tareas.ia.configuracion import obtener_variable
 from tareas.ia.errores import (
     AutenticacionProveedorIA,
     ErrorProveedorIA,
@@ -78,7 +79,7 @@ class ProveedorCentro:
         if self._contexto_tls is not None:
             return self._contexto_tls
 
-        certificado = os.environ.get("TAREAS_CA_BUNDLE")
+        certificado = obtener_variable("TAREAS_CA_BUNDLE")
 
         if certificado:
             self._contexto_tls = ssl.create_default_context(cafile=certificado)

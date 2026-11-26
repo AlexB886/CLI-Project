@@ -28,6 +28,7 @@ class Esquema:
         self.filas = filas
         self.columnas = columnas
         self.tipo = tipo
+        self.especificacion = ""
 
     @property
     def entradas(self) -> list[tuple[str, str]]:
@@ -111,12 +112,14 @@ def detectar(especificacion: str) -> Esquema | None:
         f"{etiqueta}::{detalle}" if detalle else etiqueta
         for etiqueta, detalle in entradas
     ]
-    return Esquema(
+    esquema = Esquema(
         titulo="Esquema del repaso",
         filas=filas,
         columnas=columnas,
         tipo=tipo,
     )
+    esquema.especificacion = especificacion
+    return esquema
 
 
 def _encajar(texto: str, ancho: int) -> list[str]:

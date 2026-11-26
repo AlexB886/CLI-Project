@@ -59,7 +59,7 @@
     },
     {
       "nombre": "tamano",
-      "descripcion": "Calcula el tamaño total de una carpeta recursivamente.",
+      "descripcion": "Calcula el tamaño total de una carpeta, recursivo y seguro (nombre del comando: tamano).",
       "tipo": "funcion",
       "ejecutar": "tamano",
       "destructiva": false,
@@ -129,6 +129,11 @@
           "tipo": "booleano",
           "por_defecto": true,
           "ayuda": "Abre el repaso en LibreOffice Writer al terminar."
+        },
+        "paralelo": {
+          "tipo": "entero",
+          "por_defecto": 3,
+          "ayuda": "Peticiones simultáneas al sintetizar documentos largos (1 a 8)."
         }
       }
     }

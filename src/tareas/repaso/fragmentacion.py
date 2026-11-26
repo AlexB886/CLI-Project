@@ -2,17 +2,20 @@
 
 Nunca se envía el texto entero al modelo de una sola vez: se divide en
 fragmentos por párrafos, cada fragmento se sintetiza (map) y las síntesis se
-integran en un documento maestro coherente (reduce).
+integran en un documento maestro coherente (reduce). El mapa puede ejecutarse
+con concurrencia limitada (`paralelo`) porque los fragmentos son
+independientes; nunca se reenvía un fragmento ya sintetizado.
 """
 
 import re
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tareas.ia.errores import ErrorProveedorIA
 
-LONGITUD_FRAGMENTO = 4_000
+LONGITUD_FRAGMENTO = 12_000
 _UMBRAL_ENVIO_DIRECTO = 9_000
-_MAXIMO_SINTESIS = 4_000
+_MAXIMO_SINTESIS = 24_000
 
 CONTEXTO_SINTESIS = (
     "Eres un asistente de estudio. Sintetiza fragmentos de apuntes de forma fiel: "
@@ -131,13 +134,17 @@ def sintetizar(
     texto: str,
     generar: Callable[[str, str], str],
     objetivo: str = "",
-    informar: Callable[[str], None] | None = None
+    informar: Callable[[str], None] | None = None,
+    progreso=None,
+    paralelo: int = 3,
 ) -> str:
     """Devuelve un documento maestro fiel al material, con síntesis por etapas.
 
     Textos cortos se pasan directamente; los largos se sintetizan fragmento a
-    fragmento y se integran en un único maestro coherente (no una unión de
-    resúmenes). `informar` muestra progreso sin acumular texto en memoria.
+    fragmento (con hasta `paralelo` peticiones simultáneas, siempre en orden
+    para la integración) y se integran en un único maestro coherente. El
+    progreso se reporta a través de `progreso` (objeto Progreso) si se
+    proporciona; `informar` sigue disponible para Avisos sueltos.
     """
     texto = texto.strip()
     if not texto:
@@ -148,6 +155,8 @@ def sintetizar(
     def aviso(mensaje: str) -> None:
         if informar is not None:
             informar(mensaje)
+        elif progreso is not None:
+            progreso.avanzar()  # el aviso marca una fase superada: avanza el contador
 
     def maestro_robusto(maestro: str) -> str:
         maestro = maestro.strip()
@@ -178,33 +187,99 @@ def sintetizar(
         return maestro_robusto(maestro)
 
     fragmentos = fragmentar(texto)
-    aviso(f"Documento largo: {len(fragmentos)} fragmentos. Sintetizando por etapas…")
-    sintesis: list[str] = []
-    for indice, fragmento in enumerate(fragmentos, start=1):
-        aviso(f"  · Sintetizando fragmento {indice} de {len(fragmentos)}…")
+    paralelo = max(1, min(8, int(paralelo)))
+
+    def sintetizar_fragmento(indice: int, fragmento: str) -> str:
         peticion = (
             f"Sintetiza este fragmento ({indice} de {len(fragmentos)}) de los apuntes, "
             "conservando todos los datos, cifras, fechas y definiciones. "
             "Devuelve solo viñetas:\n\n" + fragmento
         )
         try:
-            sintesis.append(generar(peticion, CONTEXTO_SINTESIS))
+            return generar(peticion, CONTEXTO_SINTESIS)
         except ErrorProveedorIA as exc:
             raise anot_etapa(exc, f"fragmento {indice} de {len(fragmentos)}") from exc
 
-    material = "\n\n".join(sintesis)
-    if len(material) > _MAXIMO_SINTESIS:
-        material = material[:_MAXIMO_SINTESIS] + "\n…"
+    if progreso is not None:
+        progreso.total = len(fragmentos)
+        progreso.cambiar_fase("Sintetizando fragmentos")
+    else:
+        aviso(f"Documento largo: {len(fragmentos)} fragmentos. Sintetizando por etapas…")
 
-    aviso("Integrando las síntesis en un documento de repaso coherente…")
-    peticion_maestro = (
-        "Integra estas síntesis de los apuntes en un único documento de repaso "
-        "coherente y bien organizado, conservando todos los datos y sin inventar nada."
-        f"{nota_objetivo}\n{_INSTRUCCIONES_MAESTRO}\n\n"
-        + material
+    sintesis: list[str] = ["" for _ in fragmentos]
+    fallo: ErrorProveedorIA | None = None
+    with ThreadPoolExecutor(max_workers=paralelo) as charca:
+        pendientes = {
+            charca.submit(sintetizar_fragmento, indice, fragmento): indice - 1
+            for indice, fragmento in enumerate(fragmentos, start=1)
+        }
+        from concurrent.futures import as_completed
+
+        for futuro in as_completed(pendientes):
+            indice = pendientes[futuro]
+            try:
+                sintesis[indice] = futuro.result()
+            except ErrorProveedorIA as exc:
+                fallo = exc
+                for resto in pendientes:
+                    resto.cancel()
+                break
+            if progreso is not None:
+                progreso.avanzar()
+    if fallo is not None:
+        if progreso is not None:
+            progreso.abortar(str(fallo))
+        raise fallo
+    if progreso is not None:
+        progreso.cerrar()
+
+    def reducir(material: str) -> str:
+        peticion_maestro = (
+            "Integra estas síntesis de los apuntes en un único documento de repaso "
+            "coherente y bien organizado, conservando todos los datos y sin inventar nada."
+            f"{nota_objetivo}\n{_INSTRUCCIONES_MAESTRO}\n\n"
+            + material
+        )
+        try:
+            return generar(peticion_maestro, CONTEXTO_MAESTRO)
+        except ErrorProveedorIA as exc:
+            raise anot_etapa(exc, "documento final") from exc
+
+    material = "\n\n".join(sintesis)
+    if progreso is not None:
+        progreso.cambiar_fase("Integrando el documento de repaso")
+    else:
+        aviso("Integrando las síntesis en un documento de repaso coherente…")
+    maestro = (
+        reducir(material)
+        if len(material) <= _MAXIMO_SINTESIS
+        else _integrar_por_partes(material, reducir, _MAXIMO_SINTESIS)
     )
-    try:
-        maestro = generar(peticion_maestro, CONTEXTO_MAESTRO)
-    except ErrorProveedorIA as exc:
-        raise anot_etapa(exc, "documento final") from exc
     return maestro_robusto(maestro)
+
+
+def _integrar_por_partes(material: str, reducir: Callable[[str], str], limite: int) -> str:
+    """Reducción por bloques: ninguna síntesis se pierde ni se trunca.
+
+    Si el conjunto de síntesis excede el contexto del modelo, se divide en
+    bloques, cada uno produce un maestro parcial, y esos parciales se vuelven
+    a integrar en el documento final.
+    """
+    bloques: list[str] = []
+    actual = ""
+    for sintesis in material.split("\n\n"):
+        candidato = f"{actual}\n\n{sintesis}" if actual else sintesis
+        if len(candidato) > limite and actual:
+            bloques.append(actual)
+            actual = sintesis
+        else:
+            actual = candidato
+    if actual:
+        bloques.append(actual)
+
+    parciales = [reducir(bloque) for bloque in bloques]
+    if len(parciales) == 1:
+        return parciales[0]
+    return reducir(
+        "\n\n".join(parciales).replace("\n# ", "\n## ")
+    )

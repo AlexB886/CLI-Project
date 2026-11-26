@@ -10,7 +10,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from tareas.repaso.contenidos import Seccion
-from tareas.repaso.esquemas import Esquema, dibujar
+from tareas.repaso.esquemas import Esquema
 
 _CELESTE = "DCE6F1"
 _GRIS = "F2F2F2"
@@ -25,6 +25,9 @@ _NOMBRES_TIPO = {
     "timeline": "línea de tiempo",
     "lista": "lista jerárquica",
 }
+
+_ANCHO_TABLA_CM = 16.5
+_ANCHO_RELATIVO = {"esquema": (30, 70), "lista": (30, 70), "tabla": (30, 70), "timeline": (25, 75)}
 
 _MANIFEST = """<?xml version="1.0" encoding="UTF-8"?>
 <manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
@@ -72,6 +75,7 @@ def _styles_xml() -> str:
   <style:style style:name="Portada_20_Sub" style:family="paragraph" style:parent-style-name="Text_20_Body"><style:paragraph-properties fo:text-align="center" fo:margin-bottom="0.3cm"/><style:text-properties fo:font-size="14pt" fo:color="#{p['azul_s']}" fo:font-style="italic"/></style:style>
   <style:style style:name="Portada_20_Meta" style:family="paragraph" style:parent-style-name="Text_20_Body"><style:paragraph-properties fo:text-align="center"/><style:text-properties fo:font-size="9.5pt" fo:color="#5A5A5A"/></style:style>
   <style:style style:name="Nota" style:family="paragraph" style:parent-style-name="Text_20_Body"><style:text-properties fo:font-size="9pt" fo:color="#5A5A5A" fo:font-style="italic"/></style:style>
+   <style:style style:name="Salto_20_pagina" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties fo:break-before="page"/></style:style>
   <style:style style:name="Esquema" style:family="paragraph" style:parent-style-name="Preformatted_20_Text"><style:paragraph-properties fo:background-color="#{p['gris']}" fo:border="0.4pt solid #{p['borde']}" fo:padding="0.18cm" fo:margin-left="0.4cm" fo:margin-right="0.4cm" fo:margin-top="0.25cm" fo:margin-bottom="0.25cm" fo:keep-together="always"/><style:text-properties style:font-name="DejaVu Sans Mono" fo:font-size="8.6pt" fo:color="#{p['texto']}"/></style:style>
   <style:style style:name="L1" style:family="list">
    <text:list-level-style-bullet text:level="1" text:bullet-char="•"><style:list-level-properties text:list-level-position-and-space-mode="label-alignment"><style:list-level-label-alignment text:label-followed-by="listtab" fo:text-indent="-0.7cm" fo:margin-left="0.7cm"/></style:list-level-properties><style:text-properties fo:color="#{p['azul_s']}" fo:font-size="110%"/></text:list-level-style-bullet>
@@ -118,18 +122,32 @@ def _bullet(texto: str, estilo: str = "L1") -> str:
     )
 
 
-def _tabla(filas: list[list[str]]) -> str:
+def _tabla(filas: list[list[str]], proporcion: tuple[int, ...] | None = None) -> str:
+    """Tabla real de Writer con columnas proporcionales al contenido."""
     if not filas:
         return ""
     columnas = max(len(fila) for fila in filas)
-    partes = [
-        '<table:table table:name="TablaRepaso" table:style-name="TDX">',
-        f'<table:table-column table:number-columns-repeated="{columnas}"/>',
+    normalizadas = [
+        (list(fila) + [""] * (columnas - len(fila)))[:columnas] for fila in filas
     ]
-    for indice, fila in enumerate(filas):
-        fila = fila + [""] * (columnas - len(fila))
+    cabecera = normalizadas[0]
+    if proporcion is None:
+        pesos = [
+            max(10, min(60, max(len(str(celda)) for celda in [fila[i] for fila in normalizadas])))
+            for i in range(columnas)
+        ]
+        suma = sum(pesos) or 1
+        proporcion = tuple(max(1, round(peso * 100 / suma)) for peso in pesos)
+        proporcion = list(proporcion)
+        proporcion[-1] += 100 - sum(proporcion)
+        proporcion = tuple(proporcion)
+    partes = ['<table:table table:name="TablaRepaso" table:style-name="TDX">']
+    for ancho in proporcion:
+        cm = _ANCHO_TABLA_CM * ancho / 100
+        partes.append(f'<table:table-column table:column-width="{cm:.2f}cm"/>')
+    for indice, fila in enumerate(normalizadas):
         partes.append("<table:table-row>")
-        for celda in fila:
+        for celda, ancho in zip(fila, proporcion):
             estilo = "TCab" if indice == 0 else ("TAlt" if indice % 2 == 0 else "TNor")
             partes.append(
                 f'<table:table-cell table:style-name="{estilo}" office:value-type="string">'
@@ -181,19 +199,26 @@ def _cuerpo_seccion(seccion: Seccion) -> str:
     return "".join(partes)
 
 
+def _esquema_como_lista(esquema: Esquema) -> str:
+    """Esquema, lista o línea de tiempo como lista jerárquica nativa de Writer.
+
+    Sustituye al diagrama ASCII: la misma información, ordenada, sin cajas
+    descolocadas ni duplicados con la tabla equivalente.
+    """
+    partes: list[str] = []
+    for etiqueta, detalle in esquema.entradas:
+        texto = f"{etiqueta} — {detalle}" if detalle else etiqueta
+        partes.append(_bullet(texto))
+    return "".join(partes)
+
+
 def _seccion_esquemas(esquemas: list[Esquema]) -> str:
     partes: list[str] = []
     for indice, esquema in enumerate(esquemas, start=1):
         partes.append(
             _titulo(f"{indice}. {_NOMBRES_TIPO.get(esquema.tipo, esquema.tipo)}", 2)
         )
-        for linea in dibujar(esquema):
-            partes.append(
-                f'<text:p text:style-name="Esquema">{escape(linea or " ")}</text:p>'
-            )
-        if esquema.tabla:
-            partes.append(_parrafo("Tabla equivalente al diagrama:", "Nota"))
-            partes.append(_tabla(esquema.tabla))
+        partes.append(_esquema_como_lista(esquema))
     return "".join(partes)
 
 
@@ -216,28 +241,29 @@ def escribir_odt(
             "Fuentes: " + (", ".join(fuentes) if fuentes else "sin fuentes"),
             "Portada_20_Meta",
         ),
-        '<text:p text:style-name="Text_20_Body"><text:soft-page-break/></text:p>',
+        '<text:p text:style-name="Salto_20_pagina"/>',
     ]
 
     esquemas_no_tabla = [e for e in esquemas if e.tipo != "tabla"]
-    tablas = [e for e in esquemas if e.tipo == "tabla"]
+    tablas_globales = [e for e in esquemas if e.tipo == "tabla"]
 
     for seccion in secciones:
-        if seccion.titulo == "Tablas comparativas" and seccion.vacia and not tablas:
-            continue
         if seccion.titulo == "Esquemas" and seccion.vacia and not esquemas_no_tabla:
             continue
         cuerpo.append(_titulo(seccion.titulo, 1))
+        if seccion.titulo == "Tablas comparativas":
+            asignadas = list(getattr(seccion, "tablas", []))
+            if not asignadas and not any(
+                getattr(s, "tablas", []) for s in secciones
+            ):
+                asignadas = tablas_globales  # compatibilidad: tablas sin sección padre
+            for tabla in asignadas:
+                cuerpo.append(_tabla(tabla.tabla))
         if seccion.titulo == "Esquemas":
             if not seccion.vacia:
                 cuerpo.append(_cuerpo_seccion(seccion))
             cuerpo.append(_seccion_esquemas(esquemas_no_tabla))
             continue
-        if seccion.titulo == "Tablas comparativas":
-            for tabla in tablas:
-                cuerpo.append(_tabla(tabla.tabla))
-            if seccion.vacia:
-                continue
         cuerpo.append(_cuerpo_seccion(seccion))
 
     cuerpo.append("</office:text></office:body>")

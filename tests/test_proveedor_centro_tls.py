@@ -98,21 +98,37 @@ def test_contexto_tls_usa_tareas_ca_bundle_configurada(monkeypatch, tmp_path):
     crear_contexto.assert_called_once_with(cafile=str(certificado))
 
 
-def test_contexto_tls_usa_almacen_sistema_si_no_hay_variable(monkeypatch):
+def test_contexto_tls_usa_tareas_ca_bundle_del_fichero_env_local(monkeypatch, tmp_path):
+    """Sin variable de entorno, la CA puede venir del .env local (con ~ expandida)."""
+    certificado = tmp_path / "centro.crt"
+    certificado.write_text("certificado de prueba", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        f'TAREAS_API_KEY=clave-sintetica\nTAREAS_CA_BUNDLE="{certificado}"\n',
+        encoding="utf-8",
+    )
     monkeypatch.delenv("TAREAS_CA_BUNDLE", raising=False)
-    contexto = MagicMock()
+    monkeypatch.delenv("TAREAS_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
 
+    from tareas.ia.configuracion import obtener_variable
+
+    assert obtener_variable("TAREAS_CA_BUNDLE") == str(tmp_path / certificado.name)
+
+    contexto = MagicMock()
     with patch(
         "tareas.ia.centro.ssl.create_default_context",
         return_value=contexto,
     ) as crear_contexto:
+        from tareas.ia.fabrica import crear_proveedor
+
         assert crear_proveedor()._crear_contexto_tls() is contexto
 
-    crear_contexto.assert_called_once_with()
+    crear_contexto.assert_called_once_with(cafile=str(tmp_path / certificado.name))
 
 
 def test_contexto_tls_mantiene_almacen_sistema_sin_ca(monkeypatch, tmp_path):
     monkeypatch.delenv("TAREAS_CA_BUNDLE", raising=False)
+    monkeypatch.chdir(tmp_path)  # sin .env local que aporte la CA
     contexto = MagicMock()
 
     with patch(

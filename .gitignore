@@ -12,3 +12,8 @@ dist/
 .env.*
 !.env.example
 *.pem
+
+# Material personal del aula: no versionar (rutas exactas, sin borrarlos).
+UD-03-SI-Alumnes.pdf
+certs/ca-ies-simarro.crt
+prueba_resumen.txt

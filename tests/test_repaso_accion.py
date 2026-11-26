@@ -148,6 +148,39 @@ def test_nombre_de_salida_repetido_no_sobrescribe(monkeypatch, tmp_path) -> None
     assert "ya existía" in resultado.salida
 
 
+def test_base_no_resoluble_es_error_humano(monkeypatch, tmp_path) -> None:
+    """Un OSError al resolver la raíz (p. ej. ruta circular) no produce traceback."""
+    apuntes = _apuntes(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    original = Path.resolve
+
+    def resolver_roto(self, *a, **k):
+        if str(self).startswith(str(tmp_path)):
+            raise OSError(40, "circular loop")
+        return original(self, *a, **k)
+
+    monkeypatch.setattr(Path, "resolve", resolver_roto)
+    resultado = internas.repaso_ia(_ctx(tmp_path, [apuntes], IAControlada(), abrir=False))
+    assert resultado.codigo == 1
+    assert "raíz autorizada" in resultado.error
+
+
+def test_comprobar_destino_con_permiso_denegado_es_error_humano(monkeypatch, tmp_path) -> None:
+    """Un EPERM al comprobar ficheros previos (carpeta de red) no produce traceback."""
+    apuntes = _apuntes(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(internas.Path, "exists", _exists_que_falla_en_odt)
+    resultado = internas.repaso_ia(_ctx(tmp_path, [apuntes], IAControlada(), abrir=False))
+    assert resultado.codigo == 1
+    assert "carpeta de destino" in resultado.error
+
+
+def _exists_que_falla_en_odt(self) -> bool:
+    if str(self).endswith(".odt"):
+        raise PermissionError(1, "Operation not permitted")
+    return Path.is_file(self) or Path.is_dir(self)
+
+
 def test_sin_libreoffice_informa_y_deja_usar_a_mano(monkeypatch, tmp_path) -> None:
     apuntes = _apuntes(tmp_path)
     monkeypatch.chdir(tmp_path)

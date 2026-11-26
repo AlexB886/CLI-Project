@@ -42,8 +42,8 @@ def recolectar(
         ("Configuración", estado),
         ("Acciones declaradas", str(len(nombres))),
         ("Acciones con IA", ", ".join(con_ia) or "ninguna"),
-        ("Clave de IA (entorno)", "configurada" if clave_configurada else "no configurada"),
-        ("Certificado CA (entorno)", certificado),
+        ("Clave de IA", "configurada" if clave_configurada else "no configurada"),
+        ("Certificado CA", certificado),
         ("Conexión", "No se comprueba; las acciones sin IA funcionan offline"),
     )
     return TablaContenido(

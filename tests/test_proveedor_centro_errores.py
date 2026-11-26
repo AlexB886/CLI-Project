@@ -239,7 +239,7 @@ def test_contenido_no_texto_y_vacio_tambien_anotan_etapa():
 
 
 def test_error_de_formato_aborta_la_serie_sin_reintentar():
-    """Si el fragmento 2 devuelve basura, no se emite la petición 3."""
+    """Un fragmento con basura aborta el mapa: ni un reintento ni petición final."""
     from tareas.repaso.fragmentacion import SintesisError, sintetizar
     from tareas.ia.errores import ErrorProveedorIA
 
@@ -254,10 +254,30 @@ def test_error_de_formato_aborta_la_serie_sin_reintentar():
             return "# Intro\n- ok"
 
     ia = IAQueFallaAlSegundo()
-    texto_largo = "\n\n".join(["párrafo " + "x " * 900 for _ in range(6)])
+    # fragmentos de ~13k: el mapa son varias peticiones; la última sería "documento final"
+    texto_largo = "\n\n".join(["párrafo " + "x " * 3500 for _ in range(6)])
     try:
-        sintetizar(texto_largo, ia.generar_texto)
+        sintetizar(texto_largo, ia.generar_texto, paralelo=2)
         raise AssertionError("debería abortar")
     except ErrorProveedorIA as exc:
-        assert exc.etapa.startswith("fragmento 2 de ")
-    assert ia.llamadas == 2  # ni un intento más: sin reintentos automáticos
+        assert exc.etapa.startswith("fragmento ")  # etapa real, no "documento final"
+    # en paralelo el worker libre emite como mucho una petición más y se cancela:
+    # nunca se reintenta el fragmento caído ni se lanza la integración final.
+    assert ia.llamadas <= 3
+
+
+def test_respuesta_no_json_no_revela_la_clave_enviada_en_el_error():
+    """Si el servidor responde basura, el mensaje de error oculta la clave propia."""
+    proveedor = crear_proveedor()
+    cuerpo_con_clave = b'{"error": "rechazada Bearer clave-sintetica-no-real"}'
+    respuesta = MagicMock()
+    respuesta.__enter__.return_value = respuesta
+    respuesta.read.return_value = b"no es json " + cuerpo_con_clave
+
+    with patch("tareas.ia.centro.urlopen", return_value=respuesta):
+        with pytest.raises(ErrorProveedorIA) as capturado:
+            proveedor.generar_texto("hola", "contexto")
+
+    mensaje = str(capturado.value) + str(getattr(capturado.value, "etapa", ""))
+    assert "clave-sintetica-no-real" not in mensaje
+    assert "[oculto]" in mensaje

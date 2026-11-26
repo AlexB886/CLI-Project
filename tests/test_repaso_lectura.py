@@ -1,7 +1,9 @@
 """Pruebas de la lectura de documentos para repaso-ia (sin IA real)."""
 
+import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -9,6 +11,36 @@ import pytest
 
 from tareas.repaso import lectura
 from tareas.repaso.lectura import LecturaError, cargar_documentos, extraer_texto
+
+
+def _simulador_ghostscript(directorios: dict[str, str]) -> tuple[str, str]:
+    """Crea un falso ejecutable `gs` que imita a `-sDEVICE=txtwrite -o SALIDA ENTRADA`.
+
+    Devuelve (ruta_del_simulador, ruta_del_pdf_extraido). El simulador extrae el
+    texto de `BT ... Tj ET` del PDF con la misma codificación latin-1 que usa
+    Ghostscript, escribe en la salida indicada y no modifica el original.
+    """
+    carpeta = Path(directorios["tmp_path"]) / "falso-gs"
+    carpeta.mkdir()
+    guion = """\
+import re, sys
+argv = sys.argv[1:]
+salida = argv[argv.index("-o") + 1]
+entrada = argv[-1]
+bytes_pdf = open(entrada, "rb").read()
+texto = " ".join(
+    m.group(1).decode("latin-1") for m in re.finditer(rb"\\((.*?)\\)\\s*Tj", bytes_pdf)
+)
+open(salida, "w", encoding="utf-8").write(texto + "\\n")
+"""
+    simulador = carpeta / ("gs" + (".bat" if os.name == "nt" else ""))
+    if os.name == "nt":
+        simulador.write_text(f'@echo off\r\n"{sys.executable}" "%~dp0gs.py" %*\r\n', encoding="utf-8")
+    else:
+        simulador.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$(dirname "$0")/gs.py" "$@"\n')
+        simulador.chmod(0o755)
+    (carpeta / "gs.py").write_text(guion, encoding="utf-8")
+    return str(simulador), str(carpeta / "extracted.txt")
 
 
 def _pdf_sencillo(ruta: Path) -> Path:
@@ -136,13 +168,30 @@ def test_el_original_nunca_se_modifica(tmp_path: Path) -> None:
 
 
 def test_pdf_sin_poppler_usa_ghostscript(tmp_path: Path, monkeypatch) -> None:
-    """Con LibreOffice y pdftotext ausentes, gs extrae el texto y no toca el PDF."""
+    """Con LibreOffice y pdftotext ausentes, gs extrae el texto y no toca el PDF.
+
+    El ejecutable Ghostscript se simula con un fixture portable (no requiere gs
+    real en el runner). La prueba real de integración es opcional:
+    ver test_pdf_integration_ghostscript_real más abajo.
+    """
     pdf = _pdf_sencillo(tmp_path / "apuntes con espacios ñ.pdf")
     antes = pdf.read_bytes()
 
-    disponible = {"gs": "/usr/bin/gs"}
-    monkeypatch.setattr(lectura.shutil, "which", lambda n: disponible.get(n))
+    ruta_simulador, _ = _simulador_ghostscript({"tmp_path": str(tmp_path)})
+    monkeypatch.setattr(lectura.shutil, "which", lambda n: ruta_simulador if n == "gs" else None)
+    monkeypatch.setattr(lectura, "_localizar_convertidor", lambda nombres: None)
     texto = extraer_texto(pdf)
+    assert "Hola" in texto and "repaso" in texto
+    assert pdf.read_bytes() == antes
+
+
+@pytest.mark.skipif(shutil.which("gs") is None, reason="Ghostscript no está instalado")
+def test_pdf_integration_ghostscript_real(tmp_path: Path) -> None:
+    """Integración real opcional con gs: se omite si no está instalado."""
+    pdf = _pdf_sencillo(tmp_path / "apuntes con espacios ñ.pdf")
+    antes = pdf.read_bytes()
+
+    texto = lectura._convertir_pdf_con_ghostscript(pdf)
     assert "Hola" in texto and "repaso" in texto
     assert pdf.read_bytes() == antes
 

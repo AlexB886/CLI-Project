@@ -93,8 +93,9 @@ def test_ver_limita_salida_a_doscientas_lineas(tmp_path):
     resultado = ver(contexto(ruta=fichero))
 
     assert resultado.salida.startswith("0\n1\n")
-    assert "5 líneas omitidas" in resultado.salida
-    assert "199\n200" not in resultado.salida
+    # streaming: no carga el fichero entero, avisa de continuación y no pasa de 200
+    assert "más líneas" in resultado.salida and "sed" in resultado.salida
+    assert "200" not in resultado.salida
 
 
 def test_tamano_suma_ficheros_y_carpetas_temporales(tmp_path):

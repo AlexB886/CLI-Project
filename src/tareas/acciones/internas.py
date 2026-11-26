@@ -13,18 +13,40 @@ from tareas.ia.errores import (
     TimeoutProveedorIA,
 )
 from tareas.modelos import ContextoAccion, ResultadoAccion, TablaContenido
-from tareas.repaso.contenidos import construir_documento, detectar_esquemas
-from tareas.repaso.esquemas import Esquema, detectar as detectar_esquema_texto
+from tareas.repaso.contenidos import (
+    construir_documento,
+    detectar_esquemas,
+    esquema_de_bloques,
+)
 from tareas.repaso.escritorio import EscritorioNoDisponible, abrir_en_writer
 from tareas.repaso.fragmentacion import SintesisError, sintetizar
 from tareas.repaso.lectura import cargar_documentos
 from tareas.repaso.odt import escribir_odt
+from tareas.repaso.seguridad import (
+    RutaFueraDeBaseError,
+    con_etapa,
+    fuera_de_base,
+    objetivo_normal,
+    ruta_dentro_de_base,
+    ruta_salida,
+)
+
+__all__ = [
+    "MENSAJE_OFFLINE_IA",
+    "RutaFueraDeBaseError",
+    "listar",
+    "validar",
+    "borrar",
+    "ver",
+    "tamano",
+    "tamano_legible",
+    "resumir_ia",
+    "tarea_ia",
+    "validar_tarea_ia",
+    "repaso_ia",
+]
 
 MENSAJE_OFFLINE_IA = "IA no disponible (modo offline): sigo con las acciones sin IA"
-
-
-class RutaFueraDeBaseError(Exception):
-    """La ruta solicitada sale de la raíz autorizada para borrar."""
 
 
 def _como_ruta(valor: object) -> Path:
@@ -144,13 +166,7 @@ def borrar(ctx: ContextoAccion) -> ResultadoAccion:
     base = _como_ruta(ctx.parametros.get("base") or Path.cwd()).resolve()
     if ruta.is_absolute():
         raise RutaFueraDeBaseError("No se permiten rutas absolutas para borrar.")
-    try:
-        ruta = (base / ruta).resolve()
-        ruta.relative_to(base)
-    except (ValueError, OSError) as exc:
-        raise RutaFueraDeBaseError(
-            f"La ruta «{valor_ruta}» queda fuera de la raíz autorizada «{base}»."
-        ) from exc
+    ruta = ruta_dentro_de_base(ruta, base, absolute=True)
 
     if not ruta.exists():
         return ResultadoAccion(codigo=1, error=f"La ruta «{ruta}» no existe.")
@@ -188,8 +204,16 @@ def ver(ctx: ContextoAccion) -> ResultadoAccion:
     if not ruta.is_file():
         return ResultadoAccion(codigo=1, error=f"«{ruta}» no es un fichero legible.")
 
+    max_lineas = 200
     try:
-        lineas = ruta.read_text(encoding="utf-8").splitlines()
+        lineas: list[str] = []
+        truncado = False
+        with ruta.open(encoding="utf-8", errors="strict") as fichero:
+            for linea in fichero:
+                if len(lineas) >= max_lineas:
+                    truncado = True
+                    break
+                lineas.append(linea.rstrip("\n"))
     except UnicodeDecodeError:
         return ResultadoAccion(
             codigo=1,
@@ -198,9 +222,10 @@ def ver(ctx: ContextoAccion) -> ResultadoAccion:
     except OSError as exc:
         return ResultadoAccion(codigo=1, error=f"No se pudo leer «{ruta}»: {exc}")
 
-    max_lineas = 200
     aviso = ""
-    if len(lineas) > max_lineas:
+    if truncado:
+        aviso = "\n… (más líneas: usa `sed -n '201,400p' para continuar)."
+    elif len(lineas) > max_lineas:
         aviso = f"\n… ({len(lineas) - max_lineas} líneas omitidas)."
         lineas = lineas[:max_lineas]
 
@@ -209,7 +234,7 @@ def ver(ctx: ContextoAccion) -> ResultadoAccion:
 
 @registrar("tamano")
 def tamano(ctx: ContextoAccion) -> ResultadoAccion:
-    """Calcula el tamaño total de una carpeta recursivamente."""
+    """Calcula el tamaño total de una carpeta, recursivo y sin seguir enlaces."""
     carpeta = _como_ruta(ctx.parametros.get("carpeta") or ".")
     if not carpeta.is_dir():
         return ResultadoAccion(
@@ -217,18 +242,30 @@ def tamano(ctx: ContextoAccion) -> ResultadoAccion:
             error=f"«{carpeta}» no existe o no es una carpeta.",
         )
 
+    import os
+
     total = 0
     ficheros = 0
     carpetas = 0
-    for ruta in carpeta.rglob("*"):
-        try:
-            if ruta.is_dir():
+    omitidos = 0
+    for raiz, nombres_dir, nombres_fich in os.walk(carpeta, followlinks=False):
+        carpeta_actual = Path(raiz)
+        for nombre in nombres_dir:
+            ruta = carpeta_actual / nombre
+            if ruta.is_symlink():
+                omitidos += 1
+            else:
                 carpetas += 1
-            elif ruta.is_file():
+        for nombre in nombres_fich:
+            ruta = carpeta_actual / nombre
+            try:
+                if ruta.is_symlink() or not ruta.is_file():
+                    omitidos += 1
+                    continue
                 total += ruta.stat().st_size
                 ficheros += 1
-        except OSError:
-            continue
+            except OSError:
+                omitidos += 1
 
     try:
         titulo = f"Tamaño de {carpeta.resolve()}"
@@ -244,6 +281,11 @@ def tamano(ctx: ContextoAccion) -> ResultadoAccion:
                 ("Ficheros", str(ficheros)),
                 ("Carpetas", str(carpetas)),
                 ("Tamaño total", tamano_legible(total)),
+                *(
+                    (("No contabilizados (enlaces o permisos)", str(omitidos)),)
+                    if omitidos
+                    else ()
+                ),
             ),
             alinear_derecha=(1,),
         ),
@@ -372,83 +414,6 @@ def tarea_ia(ctx: ContextoAccion) -> ResultadoAccion:
     return validar_tarea_ia(propuesta)
 
 
-def _con_etapa(mensaje: str, exc: Exception) -> str:
-    """Añade la etapa del fallo al mensaje humano, sin exponer secretos."""
-    etapa = getattr(exc, "etapa", "") or ""
-    return f"{mensaje} (etapa: {etapa})" if etapa else mensaje
-
-
-def _fuera_de_base(ruta: Path, base: Path) -> bool:
-    """True si la ruta (ya resuelta) escapa de la raíz autorizada."""
-    try:
-        ruta.relative_to(base)
-    except ValueError:
-        return True
-    return False
-
-
-def _objetivo_normal(objetivo: str | None) -> str:
-    valor = (objetivo or "").strip().casefold()
-    equivalentes = {
-        "test": "examen tipo test",
-        "tipo test": "examen tipo test",
-        "tipo_test": "examen tipo test",
-        "desarrollo": "examen de desarrollo",
-        "examen desarrollo": "examen de desarrollo",
-        "general": "repaso general",
-        "": "repaso general",
-    }
-    return equivalentes.get(valor, objetivo or "repaso general")
-
-
-def _ruta_salida(requisitada: Path, base: Path) -> Path:
-    """Resuelve la salida dentro de la raíz autorizada, como hace `borrar`."""
-    ruta = requisitada
-    if not ruta.is_absolute():
-        ruta = base / ruta
-    ruta = ruta.resolve()
-    if _fuera_de_base(ruta, base):
-        raise RutaFueraDeBaseError(
-            f"La ruta de salida «{requisitada}» queda fuera de la raíz autorizada «{base}»."
-        )
-    return ruta
-
-
-def _esquema_de_bloques(
-    maestro: str, titulo_repaso: str, maximo_nodos: int = 5
-) -> Esquema | None:
-    """Esquema local de seguridad si la IA no devolvió ninguno.
-
-    Usa únicamente los títulos de sección del maestro y su primera frase:
-    contenido derivado de los apuntes, nunca inventado.
-    """
-    bloques = re.findall(r"^#{1,3}\s+(.*)$", maestro, flags=re.MULTILINE)
-    cuerpos = re.split(r"^#{1,3}\s+.*$", maestro, flags=re.MULTILINE)[1:]
-    omitidas = {"esquema"}
-    nodos: list[tuple[str, str]] = []
-    for titulo, cuerpo in zip(bloques, cuerpos):
-        limpio = titulo.strip(" :·-")
-        if limpio.casefold() in omitidas:
-            continue
-        primera = next((linea.strip() for linea in cuerpo.splitlines() if linea.strip()), "")
-        if len(primera) > 90:
-            primera = primera[:90].rsplit(" ", 1)[0] + "…"
-        nodos.append((limpio, primera))
-    if len(nodos) < 2:
-        return None
-    raiz = (titulo_repaso, "Documento de repaso generado a partir de los apuntes")
-    especificacion = "esquema:\n| \n".join(
-        [f"{raiz[0]} :: {raiz[1]}"] + [f"{t} :: {d}" if d else t for t, d in nodos[:maximo_nodos]]
-    )
-    return detectar_esquema_texto(especificacion)
-
-
-def _titulo_documento(nombre: str) -> str:
-    """Tema deducido del nombre del documento (sin inventar datos)."""
-    limpio = re.sub(r"[_\-·]+", " ", nombre).strip()
-    return limpio or "Apuntes"
-
-
 @registrar("repaso-ia")
 def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
     """Genera un documento de repaso ODT con IA y lo abre en LibreOffice Writer."""
@@ -459,10 +424,17 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
     if not archivos:
         return ResultadoAccion(codigo=1, error="Indica al menos un documento de apuntes.")
 
-    base = Path(str(ctx.parametros.get("base") or Path.cwd())).expanduser().resolve()
+    try:
+        base = Path(str(ctx.parametros.get("base") or Path.cwd())).expanduser().resolve()
+    except OSError as exc:
+        return ResultadoAccion(codigo=1, error=f"No se pudo resolver la raíz autorizada: {exc}")
     for ruta in archivos:
         absoluta = ruta if ruta.is_absolute() else base / ruta
-        if _fuera_de_base(absoluta.resolve(), base):
+        try:
+            resuelta = absoluta.resolve()
+        except OSError:
+            resuelta = absoluta
+        if fuera_de_base(resuelta, base):
             return ResultadoAccion(
                 codigo=1,
                 error=f"El apunte «{ruta}» está fuera de la raíz autorizada «{base}».",
@@ -479,6 +451,11 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
     def avisos(texto: str) -> None:
         print(texto, flush=True)
 
+    def _es_tty() -> bool:
+        import sys
+
+        return sys.stdout.isatty()
+
     if ilegibles:
         nombres = ", ".join(str(r) for r in ilegibles)
         avisos(f"Atención: no se pudieron leer {nombres}.")
@@ -489,13 +466,14 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
             error=f"No hay apuntes que repasar: {detalle}",
         )
 
-    objetivo = _objetivo_normal(str(ctx.parametros.get("objetivo") or ""))
+    objetivo = objetivo_normal(str(ctx.parametros.get("objetivo") or ""))
+    paralelo = max(1, min(8, int(ctx.parametros.get("paralelo") or 3)))
 
     nombre_parametro = str(ctx.parametros.get("nombre") or "").strip()
     titulo = nombre_parametro or documentos[0].origen.stem
     nombre = re.sub(r"[^\w\- ]+", "", titulo).strip().replace(" ", "-")
     salida = ctx.parametros.get("salida")
-    destino = _ruta_salida(
+    destino = ruta_salida(
         Path(str(salida)) if salida else documentos[0].origen.parent, base
     )
     if destino.suffix.lower() == ".odt":
@@ -503,9 +481,15 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
 
     ruta_final = destino / f"{nombre}.odt"
     numero = 1
-    while ruta_final.exists():
-        numero += 1
-        ruta_final = destino / f"{nombre}_{numero}.odt"
+    try:
+        while ruta_final.exists():
+            numero += 1
+            ruta_final = destino / f"{nombre}_{numero}.odt"
+    except OSError as exc:
+        return ResultadoAccion(
+            codigo=1,
+            error=f"No se pudo comprobar la carpeta de destino «{destino}»: {exc}",
+        )
 
     if ctx.simular:
         nombres = ", ".join(d.origen.name for d in documentos)
@@ -520,19 +504,31 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
         )
 
     texto = "\n\n".join(d.texto for d in documentos)
+    from tareas.visual import Progreso
+
+    if len(texto.strip()) <= 9_000:
+        progreso = Progreso(1, "Analizando los apuntes", imprimir=avisos)
+    else:
+        from tareas.repaso.fragmentacion import LONGITUD_FRAGMENTO, fragmentar
+
+        progreso = Progreso(
+            len(fragmentar(texto)) + 1, "Analizando los apuntes", imprimir=avisos
+        )
     try:
         maestro = sintetizar(
             texto,
             generar=proveedor.generar_texto,
             objetivo=objetivo,
-            informar=avisos,
+            informar=avisos if not _es_tty() else None,
+            progreso=progreso,
+            paralelo=paralelo,
         )
     except SintesisError as exc:
         return ResultadoAccion(codigo=1, error=f"{exc} {exc.detalle}".strip())
     except AutenticacionProveedorIA as exc:
         return ResultadoAccion(
             codigo=1,
-            error=_con_etapa(
+            error=con_etapa(
                 "La clave de la IA del centro no es válida o no tiene acceso. Revisa la configuración.",
                 exc,
             ),
@@ -540,21 +536,21 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
     except TimeoutProveedorIA as exc:
         return ResultadoAccion(
             codigo=1,
-            error=_con_etapa(
+            error=con_etapa(
                 "La IA del centro agotó el tiempo de espera. Inténtalo de nuevo.", exc
             ),
         )
     except ErrorProveedorIA as exc:
         return ResultadoAccion(
             codigo=1,
-            error=_con_etapa(
+            error=con_etapa(
                 "La IA del centro devolvió una respuesta inválida.", exc
             ),
         )
 
     esquemas = detectar_esquemas(maestro)
     if not esquemas:
-        respaldo = _esquema_de_bloques(maestro, f"Repaso: {titulo}")
+        respaldo = esquema_de_bloques(maestro, f"Repaso: {titulo}")
         if respaldo is not None:
             esquemas = [respaldo]
 
