@@ -6,7 +6,7 @@ from typing import Any
 from tareas.errores import AccionNoValida
 from tareas.modelos import Accion
 
-TIPOS_VALIDOS = {"texto", "entero", "ruta", "booleano"}
+TIPOS_VALIDOS = {"texto", "entero", "ruta", "booleano", "rutas"}
 
 
 def convertir(valor: Any, tipo: str, nombre: str) -> Any:
@@ -24,6 +24,10 @@ def convertir(valor: Any, tipo: str, nombre: str) -> Any:
             raise ValueError(f"El parámetro «{nombre}» debe ser un número entero.") from exc
     if tipo == "ruta":
         return Path(str(valor)).expanduser()
+    if tipo == "rutas":
+        if isinstance(valor, (list, tuple, set)):
+            return [str(item) for item in valor]
+        return [str(valor)] if str(valor).strip() else []
     if tipo == "booleano":
         if isinstance(valor, bool):
             return valor
@@ -57,6 +61,8 @@ def resolver_parametros(
         valores[parametro.nombre] = valor
 
     for par in pares:
+        if par == "simular=1":
+            continue  # marca interna de simulación, no es parámetro de la acción
         if "=" not in par:
             raise AccionNoValida(
                 f"Parámetro inválido «{par}»: usa el formato CLAVE=VALOR."

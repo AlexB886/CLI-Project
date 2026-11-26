@@ -41,6 +41,8 @@ def test_doctor_muestra_estado_sin_revelar_la_clave(tmp_path, monkeypatch):
 
 
 def test_doctor_informa_configuracion_invalida_sin_traceback(tmp_path, monkeypatch):
+    # el diagnóstico lee la config como el proveedor: aísslalo del .env del proyecto
+    monkeypatch.chdir(tmp_path)
     ruta = tmp_path / "acciones.json"
     ruta.write_text("{no-json", encoding="utf-8")
     monkeypatch.delenv("TAREAS_API_KEY", raising=False)

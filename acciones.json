@@ -59,7 +59,7 @@
     },
     {
       "nombre": "tamano",
-      "descripcion": "Calcula el tamaño total de una carpeta recursivamente.",
+      "descripcion": "Calcula el tamaño total de una carpeta, recursivo y seguro (nombre del comando: tamano).",
       "tipo": "funcion",
       "ejecutar": "tamano",
       "destructiva": false,
@@ -96,6 +96,44 @@
           "tipo": "texto",
           "requerido": true,
           "ayuda": "Texto que describe la tarea que quieres crear."
+        }
+      }
+    },
+    {
+      "nombre": "repaso-ia",
+      "descripcion": "Genera un documento de repaso ODT con IA a partir de tus apuntes y lo abre en LibreOffice Writer.",
+      "tipo": "funcion",
+      "ejecutar": "repaso-ia",
+      "destructiva": false,
+      "ia": true,
+      "parametros": {
+        "archivos": {
+          "tipo": "rutas",
+          "requerido": true,
+          "ayuda": "Apuntes de entrada (txt, md, pdf, docx, odt…); se pueden indicar varios."
+        },
+        "objetivo": {
+          "tipo": "texto",
+          "por_defecto": "repaso general",
+          "ayuda": "Objetivo de estudio: examen tipo test, examen de desarrollo o repaso general."
+        },
+        "salida": {
+          "tipo": "ruta",
+          "ayuda": "Carpeta donde guardar el repaso (por defecto, la carpeta del primer apunte)."
+        },
+        "nombre": {
+          "tipo": "texto",
+          "ayuda": "Nombre del documento generado (sin extensión)."
+        },
+        "abrir": {
+          "tipo": "booleano",
+          "por_defecto": true,
+          "ayuda": "Abre el repaso en LibreOffice Writer al terminar."
+        },
+        "paralelo": {
+          "tipo": "entero",
+          "por_defecto": 3,
+          "ayuda": "Peticiones simultáneas al sintetizar documentos largos (1 a 8)."
         }
       }
     }

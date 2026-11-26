@@ -16,6 +16,7 @@ from tareas.acciones.registro import registro
 from tareas.configuracion import CargadorAccionesJSON
 from tareas.diagnostico import recolectar
 from tareas.errores import AccionNoValida, ConfigError
+from tareas.ia.configuracion import obtener_clave, obtener_variable
 from tareas.acciones.internas import RutaFueraDeBaseError
 from tareas.modelos import Accion, ResultadoAccion, TablaContenido
 from tareas.motor import Motor
@@ -86,10 +87,14 @@ def _motor(ctx: typer.Context, si: bool = False) -> Motor:
     def confirmar(accion: Accion) -> bool:
         if si:
             return True
-        return typer.confirm(
-            f"La acción «{accion.nombre}» es destructiva. ¿Continuar?",
-            default=False,
-        )
+        try:
+            return typer.confirm(
+                f"La acción «{accion.nombre}» es destructiva. ¿Continuar?",
+                default=False,
+            )
+        except typer.Abort:
+            # Abortar equivale a responder «no»: operación cancelada con código 1.
+            return False
 
     return Motor(ruta, confirmador=confirmar)
 
@@ -126,6 +131,13 @@ def _ejecutar_accion(
 
 
 def _crear_comando(accion: Accion):
+    ayuda_parametros = "; ".join(
+        f"{p.nombre} ({p.tipo}): {p.ayuda}" for p in accion.parametros if p.ayuda
+    )
+    descripcion = accion.descripcion
+    if ayuda_parametros:
+        descripcion = f"{descripcion}\n\nParámetros: {ayuda_parametros}"
+
     def comando(
         ctx: typer.Context,
         args: Annotated[
@@ -163,10 +175,12 @@ def _crear_comando(accion: Accion):
     ) -> None:
         if base is not None:
             parametros = [*(parametros or []), f"base={base}"]
+        if dry_run:
+            parametros = [*(parametros or []), "simular=1"]
         _ejecutar_accion(ctx, accion.nombre, args, parametros, dry_run, si)
 
     comando.__name__ = f"comando_{accion.nombre.replace('-', '_')}"
-    comando.__doc__ = accion.descripcion
+    comando.__doc__ = descripcion
     return comando
 
 
@@ -180,9 +194,17 @@ def _acciones_iniciales(ruta: Path) -> list[Accion]:
         return []
 
 
+class TareasTyper(typer.Typer):
+    """Typer con excepciones bonitas desactivadas: el manejo de errores es propio."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        kwargs["pretty_exceptions_enable"] = False
+        super().__init__(*args, **kwargs)
+
+
 def crear_app(ruta_config: Path | None = None) -> typer.Typer:
     """Construye la app y registra un comando por cada acción del JSON."""
-    app = typer.Typer(
+    app = TareasTyper(
         help="[bold cyan]TAREAS[/bold cyan] · automatiza tareas repetitivas con tus ficheros.",
         rich_markup_mode="rich",
         no_args_is_help=True,
@@ -221,8 +243,8 @@ def crear_app(ruta_config: Path | None = None) -> typer.Typer:
             ResultadoAccion(
                 datos=recolectar(
                     motor.ruta,
-                    clave_configurada=bool(os.environ.get("TAREAS_API_KEY")),
-                    ruta_ca=os.environ.get("TAREAS_CA_BUNDLE"),
+                    clave_configurada=bool(obtener_clave()),
+                    ruta_ca=obtener_variable("TAREAS_CA_BUNDLE"),
                 )
             )
         )
@@ -353,6 +375,31 @@ def crear_app(ruta_config: Path | None = None) -> typer.Typer:
         """Ejecuta una acción declarada en acciones.json."""
         _ejecutar_accion(ctx, nombre, args, parametros, dry_run, si)
 
+    from typer.main import get_command
+    from typer._click.exceptions import UsageError
+
+    comando = get_command(app)
+    context_settings = dict(comando.context_settings or {})
+    context_settings["help_option_names"] = ["-h", "--help"]
+
+    class RaizTareas(type(comando)):
+        """Raíz que convierte los errores de uso en un mensaje humano con código 2."""
+
+        def main(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            kwargs.setdefault("standalone_mode", False)
+            try:
+                return super().main(*args, **kwargs)
+            except UsageError as exc:
+                _error(exc.format_message())
+                raise SystemExit(2) from exc
+            except SystemExit:
+                raise
+            except Exception as exc:  # última red: ni un traceback al usuario
+                _error(f"Error inesperado: {type(exc).__name__}: {exc}")
+                raise SystemExit(1) from exc
+
+    comando.__class__ = RaizTareas
+    comando.context_settings = context_settings
     return app
 
 

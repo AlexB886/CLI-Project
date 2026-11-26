@@ -11,12 +11,16 @@ FuncionAccion = Callable[[ContextoAccion], ResultadoAccion]
 class AccionFuncion:
     """Envuelve una función registrada para que cumpla el puerto de ejecución."""
 
-    def __init__(self, accion: Accion, funcion: FuncionAccion) -> None:
+    def __init__(
+        self,
+        accion: Accion,
+        funcion: FuncionAccion,
+    ) -> None:
         self._accion = accion
         self._funcion = funcion
 
     def previsualizar(self, ctx: ContextoAccion) -> ResultadoAccion:
-        """Ejecuta la función en modo simulación."""
+        """Simula la acción sin efectos: la propia función decide cómo previsualizar."""
         return self._funcion(replace(ctx, simular=True))
 
     def ejecutar(self, ctx: ContextoAccion) -> ResultadoAccion:
