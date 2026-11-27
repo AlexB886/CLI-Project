@@ -2,7 +2,7 @@
 
 CLI para automatizar tareas repetitivas con ficheros desde la terminal.
 
-**Estado:** v1.0.0 · motor de acciones configurable, capa IA del centro, +200 pruebas (la cifra exacta evoluciona con cada fase; consulta `uv run pytest tests/`) y CI multi-OS en verde.
+**Estado:** v1.0.0 (Release y etiqueta publicadas) · motor de acciones configurable y capa IA del centro. Última auditoría local: 255 pruebas superadas, 3 omitidas y 86 % de cobertura; GitHub Actions ejecutado correctamente en Ubuntu, Windows y macOS. Estas cifras pueden variar con nuevos cambios.
 
 ---
 
@@ -10,12 +10,12 @@ CLI para automatizar tareas repetitivas con ficheros desde la terminal.
 
 1. **Problema:** cada semana pierdo tiempo ordenando Descargas a mano.
 2. **Para quién:** para mí y para mis compañeros de clase.
-3. **Cómo se usa:** `tareas ORDEN [RUTA] [opciones]` desde cualquier terminal.
+3. **Cómo se usa:** `tareas ACCIÓN [ARGUMENTOS] [opciones]` desde cualquier terminal.
 4. **Órdenes de la semana 1:** `tareas --help`, `tareas version`, `tareas listar [CARPETA]`.
-5. **Órdenes disponibles:** `listar`, `validar`, `ver`, `tamano`, `borrar`, `resumir-ia`, `tarea-ia`, `acciones`, `ejecutar NOMBRE`, `doctor`, `menu`, `version`.
+5. **Órdenes disponibles:** `listar`, `validar`, `ver`, `tamano`, `borrar`, `resumir-ia`, `tarea-ia`, `repaso-ia`, `acciones`, `ejecutar NOMBRE`, `doctor`, `menu`, `version`.
 6. **Acciones reales:** 5 tradicionales (`listar`, `validar`, `ver`, `tamano`, `borrar`) y 3 con IA (`resumir-ia`, `tarea-ia`, `repaso-ia`).
-7. **Nunca hará:** borrar sin preguntar, ni tocar ficheros fuera de la raíz autorizada (confinamiento real, ver Seguridad).
-8. **Plataformas:** Linux primero; también Windows y macOS.
+7. **Nunca hará:** borrar sin aviso (`--dry-run` simula y, sin esa opción, pide confirmación salvo `--si`), ni tocar ficheros fuera de la raíz autorizada (ver Seguridad).
+8. **Plataformas:** Linux, Windows y macOS (CI en los tres sistemas).
 9. **Códigos de salida:** `0` bien · `1` fallo al ejecutar · `2` uso incorrecto · `3` configuración inválida.
 10. **Instalación:** `uv tool install .` (o `uv run tareas` en desarrollo).
 
@@ -85,10 +85,11 @@ uv run tareas menu       # menú numerado: elige acción por número
 
 Las cinco acciones tradicionales (`listar`, `validar`, `ver`, `tamano`,
 `borrar`), `menu`, `doctor`, `acciones` y `version` **no necesitan red ni
-clave**. Si no hay `TAREAS_API_KEY` configurada o el servicio del centro no
-responde, las acciones de IA lo dicen en humano —«IA no disponible (modo
-offline): sigo con las acciones sin IA»— y terminan con éxito sin tocar nada.
-Puedes usar el CLI al 100 % sin IA.
+clave**. Sin `TAREAS_API_KEY`, `resumir-ia` y `tarea-ia` avisan en humano —«IA
+no disponible (modo offline): sigo con las acciones sin IA»— y terminan con
+código `0`. `repaso-ia` depende de la IA para redactar el documento: sin
+proveedor informa «No hay ningún proveedor de IA configurado.», termina con
+código `3` y no escribe el ODT. El resto del CLI se usa sin IA sin problema.
 
 ### Ejemplos reales (ejecutados y verificados)
 
@@ -104,7 +105,7 @@ uv run tareas tamano src                      # tabla: Ficheros, Carpetas, Tama�
 
 # Para simular un borrado (desde la carpeta donde está el fichero):
 uv run tareas borrar fichero-viejo.txt --dry-run
-# → [simular] Se borraría «…fichero-viejo.txt» (44 B).  No borra nada.
+# → [simular] Se borraría «…fichero-viejo.txt» (n B).  No borra nada.
 ```
 
 ## Errores típicos y cómo arreglarlos
@@ -112,16 +113,17 @@ uv run tareas borrar fichero-viejo.txt --dry-run
 | Mensaje | Qué significa | Qué hacer |
 |---|---|---|
 | `No existe el fichero de acciones «…»` | No hay `acciones.json` donde toca | Ejecuta desde la raíz del proyecto o pasa `--acciones RUTA` |
-| `JSON inválido en «…» línea N, columna N` | El JSON tiene una coma/llave mal | Corrige esa línea; el mensaje indica dónde |
+| `JSON inválido en «…», línea N, columna N` | El JSON tiene una coma/llave mal | Corrige esa línea; el mensaje indica dónde |
 | `La acción «x» no existe. Disponibles: …` | Nombre mal escrito | Usa una de la lista (sugiere la parecida) |
-| `La ruta … queda fuera de la raíz autorizada` | `borrar` solo borra dentro de la base | Ajusta la ruta o `--base` |
-| `El fichero «…» está vacío` / `no es un fichero de texto` | `validar`/`ver` detectan el problema real | Comprueba la ruta y el formato |
+| `La ruta … queda fuera de la raíz autorizada` | `borrar` o `repaso-ia` salen de la base | Ajusta la ruta o `--base` |
+| `El fichero «…» está vacío` / `«…» no es un fichero de texto (UTF-8)` | `validar`/`ver` detectan el problema real | Comprueba la ruta y el formato |
+| `No hay ningún proveedor de IA configurado.` | `repaso-ia` sin clave de IA | Configura `TAREAS_API_KEY` o usa las acciones sin IA |
 | `La clave de la IA del centro no es válida…` | 401/403 del servicio | Revisa `TAREAS_API_KEY` |
 | `La IA del centro agotó el tiempo de espera` | Tarde en responder | Inténtalo de nuevo |
 
-Ningún error muestra un traceback de Python. Ejecuta
-[`docs/guia-pruebas-manuales.md`](docs/guia-pruebas-manuales.md) (checklist)
-para comprobarlo comando a comando.
+Los errores previstos se presentan como mensajes humanos sin traceback de
+Python. Ejecuta [`docs/guia-pruebas-manuales.md`](docs/guia-pruebas-manuales.md)
+(checklist) para comprobarlo comando a comando.
 
 ## Configurar la IA (opcional)
 
@@ -133,8 +135,9 @@ export TAREAS_API_KEY='tu-clave-proporcionada-por-el-centro'
 export TAREAS_CA_BUNDLE="/ruta/al/certificado-CA-del-centro.crt"  # si la CA no es pública
 ```
 
-(o copia `.env.example` como `.env` local: está ignorado por Git; admite tanto
-`TAREAS_API_KEY` como `TAREAS_CA_BUNDLE`). Después:
+En PowerShell, usa `$env:TAREAS_API_KEY='…'` y `$env:TAREAS_CA_BUNDLE='…'`.
+También puedes copiar `.env.example` como `.env` local (ignorado por Git); admite
+tanto `TAREAS_API_KEY` como `TAREAS_CA_BUNDLE`. Después:
 
 ```bash
 uv run tareas doctor                          # dice si la clave está configurada
@@ -171,6 +174,10 @@ acción» (documentación técnica, más abajo).
 | `2` | Uso incorrecto (acción desconocida, argumentos mal formados) |
 | `3` | Configuración inválida (JSON roto o inexistente) |
 
+Nota: con `acciones.json` inválido, los subcomandos dinámicos pueden no
+registrarse y Typer devuelve `2` («No such command»); `ejecutar NOMBRE` sí
+informa del error de configuración con `3`.
+
 ## Composición de acciones
 
 No hay un motor de pipelines: las acciones están diseñadas para componerse
@@ -191,7 +198,7 @@ uv run tareas tamano /ruta/a/tus/apuntes
 # Simular un borrado (ruta RELATIVA a la carpeta actual; así lo exige la seguridad):
 cd /ruta/a/tus/apuntes
 uv run --project /ruta/del/proyecto tareas borrar viejo.txt --dry-run
-# → [simular] Se borraría «/ruta/a/tus/apuntes/viejo.txt» (44 B).  No borra nada.
+# → [simular] Se borraría «/ruta/a/tus/apuntes/viejo.txt» (n B).  No borra nada.
 ```
 
 Encadenamiento con gestión de errores (la cadena se corta en el primer fallo):
@@ -224,12 +231,13 @@ tareas borrar fichero.txt --si
 ```
 
 Además, `borrar` está **confinado a una raíz autorizada** (el directorio actual
-o la que pases con `--base`); `repaso-ia` aplica la misma política a sus apuntes
-y a la carpeta de salida. `borrar` rechaza rutas absolutas y cualquier `../` que salga
-de esa raíz, para que un borrado no pueda tocar ficheros del sistema ni de fuera
-del proyecto. La política de confinamiento y los mensajes de seguridad viven en
-un módulo propio, `tareas.repaso.seguridad`, reutilizado por `borrar` y
-`repaso-ia`. Esta decisión está documentada en
+o la que pases con `--base`): rechaza rutas absolutas y cualquier `../` que salga
+de esa raíz, para reducir el riesgo de tocar ficheros fuera del proyecto.
+`repaso-ia` aplica el mismo confinamiento a sus apuntes y a la carpeta de salida:
+resuelve las rutas relativas desde `--base` y admite absolutas siempre que
+queden dentro de la raíz autorizada. La política y los mensajes de seguridad
+viven en `tareas.repaso.seguridad`, reutilizado por ambas acciones. Esta
+decisión está documentada en
 [`docs/adr/0001`](docs/adr/0001-acciones-desde-json-externo.md).
 
 ## Cómo añadir una acción
@@ -268,6 +276,8 @@ src/tareas/
 ├── modelos.py       # modelos de datos
 ├── parametros.py    # parseo de argumentos
 ├── configuracion.py # carga y valida el JSON
+├── diagnostico.py   # datos de `doctor`, sin red ni secretos
+├── acciones/        # funciones registradas y ejecutores de comandos
 ├── repaso/          # lectura, síntesis, esquemas, ODT, seguridad y apertura en Writer
 └── ia/              # proveedor IA (interfaz, ProveedorNulo, proveedor del centro)
 docs/adr/            # decisiones de arquitectura
@@ -303,7 +313,10 @@ En el equipo del profesor hay que configurar sus propias credenciales y obtener
 la CA por un canal autorizado; no se puede asumir que la clave local, la ruta
 `certs/` o la conectividad de este ordenador existan allí. Sin API Key, red o
 CA reconocida/configurada, Qwen no estará disponible. Las acciones tradicionales
-del CLI siguen funcionando sin conexión a Qwen.
+del CLI siguen funcionando sin conexión a Qwen. La integración real con el
+servidor del centro está **pendiente de validar en el instituto**: durante la
+auditoría solo se usaron proveedores simulados, sin contactar con el endpoint
+real.
 
 ## Comandos de apoyo
 
@@ -326,14 +339,16 @@ uv run tareas menu
 `repaso-ia` convierte uno o varios documentos de apuntes en un **repaso
 educativo en formato ODT** (portada, resumen por apartados, conceptos clave,
 tablas comparativas, esquemas dibujados localmente, errores frecuentes, repaso
-final y preguntas de examen) y lo abre en LibreOffice Writer al terminar.
+final y preguntas de examen) e intenta abrirlo en LibreOffice Writer al terminar
+(`abrir=true` por defecto).
 
 ```bash
 uv run tareas repaso-ia tema3.pdf                                  # un PDF
 uv run tareas repaso-ia apuntes.md resumen.txt                      # varios
 uv run tareas repaso-ia tema.pdf -p objetivo="examen tipo test"     # objetivo
 uv run tareas repaso-ia tema.pdf -p salida=repasos -p nombre=final  # destino
-uv run tareas repaso-ia tema.pdf -p paralelo=5                        # más concurrencia
+uv run tareas repaso-ia tema.pdf --base /ruta/a/apuntes             # raíz autorizada
+uv run tareas repaso-ia tema.pdf -p paralelo=5                      # más concurrencia
 uv run tareas repaso-ia tema.pdf --dry-run                          # simular
 ```
 
@@ -344,9 +359,12 @@ uv run tareas repaso-ia tema.pdf --dry-run                          # simular
   `repaso-ia apuntes.md resumen.txt`.
 - Los originales **nunca se modifican**; el repaso se escribe junto al primer
   apunte (o en `salida=`). Si el nombre ya existe, se guarda con sufijo `_2`,
-  sin sobrescribir.
-- Con documentos largos la IA trabaja por etapas: sintetiza fragmentos (hasta 3
-  peticiones simultáneas, ajustable con `-p paralelo=N`) y redacta un maestro único.
+  `_3`, …, sin sobrescribir.
+- `--base` fija la raíz autorizada: los apuntes relativos se leen desde ahí y la
+  salida queda confinada a esa carpeta.
+- Con documentos largos la IA trabaja por etapas: sintetiza fragmentos (3
+  peticiones simultáneas por defecto, ajustable de 1 a 8 con `-p paralelo=N`) y
+  redacta un maestro único.
   En terminal interactiva se muestra una línea de progreso compacta con spinner,
   contador y porcentaje; con salida redirigida, solo las fases y un resumen final.
 - Si la IA falla (clave, tiempo de espera o sin conexión) el error se informa
@@ -370,9 +388,16 @@ está en [`docs/guia-pruebas-manuales.md`](docs/guia-pruebas-manuales.md).
 ## Pruebas automatizadas
 
 ```bash
-uv run pytest tests/          # suite completa (el número de pruebas evoluciona; hoy +230)
-uv run pytest tests/test_cli.py -q   # solo integración CLI
+uv run pytest -q                                       # suite completa
+uv run pytest tests/test_cli.py -q                     # solo integración CLI
+uv run pytest -q --cov=src/tareas --cov-report=term    # cobertura (pytest-cov)
 ```
+
+Última auditoría local: **255 pruebas superadas, 3 omitidas y 86 % de cobertura**
+(`2146` sentencias, `299` sin cubrir). GitHub Actions ejecutó `uv sync --frozen`
+y `uv run pytest -q` correctamente en Ubuntu, Windows y macOS. Las cifras pueden
+cambiar con nuevos cambios; los 3 skips son integraciones condicionadas a
+herramientas del sistema.
 
 ## Proceso de desarrollo
 
@@ -381,16 +406,19 @@ descriptivos, integradas en `main` mediante pull request. Cada PR se valida con
 **GitHub Actions** (job `CI`: `uv sync --frozen` + `uv run pytest -q` en Ubuntu,
 Windows y macOS). Las decisiones importantes se registran como ADR en
 `docs/adr/`. Los cambios se preparan y prueban en local (`uv sync` + `uv run
-pytest -q`) antes de abrir el PR. El cierre lo marca la release etiquetada
-`v1.0.0` con `CHANGELOG.md` (ver Roadmap).
+pytest -q`) antes de abrir el PR. La release `v1.0.0` y su etiqueta ya están
+publicadas en GitHub; `CHANGELOG.md` resume los cambios (ver Roadmap).
 
 ## Roadmap
 
-- [x] Capa IA: acciones `resumir-ia` y `tarea-ia` + modo sin red.
-- [x] Tests del camino feliz + casos feos (suite en evolución; ver «Pruebas automatizadas»).
-- [x] GitHub Actions para correr los tests en cada push (Ubuntu, Windows, macOS).
+- [x] Capa IA: acciones `resumir-ia`, `tarea-ia` y `repaso-ia` + modo sin red.
+- [x] Tests del camino feliz y casos adversos (255 superadas, 3 omitidas en la última auditoría; ver «Pruebas automatizadas»).
+- [x] GitHub Actions: `uv sync --frozen` y `uv run pytest -q` en Ubuntu, Windows y macOS.
 - [x] Flujo de ramas + pull requests hacia `main`.
-- [ ] Release `v1.0.0` etiquetada (versión y `CHANGELOG.md` preparados; **pendiente** de crear el tag y la GitHub Release).
+- [x] Robustez de la auditoría final: parámetros, lectura de documentos, rutas y confinamiento, ODT y mensajes de error.
+- [x] Release `v1.0.0` etiquetada y publicada en GitHub.
+- [ ] Validación real de la IA del centro en el instituto (credenciales, CA, red y respuestas): pendiente; solo se han usado proveedores simulados.
+- [ ] Checklist manual con herramientas del sistema (LibreOffice, `pdftotext`, Ghostscript) en los equipos del centro: pendiente.
 
 ## Licencia
 
