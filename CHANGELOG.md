@@ -34,6 +34,19 @@ proyecto se adhiere al [versionado semántico](https://semver.org/lang/es/).
   esquemas, ODT, contenidos, apertura, la acción y un test de integración;
   sin IA real ni LibreOffice real.
 
+### Corregido
+
+- `repaso-ia apuntes.md resumen.txt` ahora entrega dos apuntes en vez de
+  interpretar el segundo como objetivo de estudio.
+- Los formatos declarados `.ods/.htm/.html/.rtf/.doc` ya producen texto o un
+  error humano; antes `extraer_texto` devolvía `None` y rompía la acción.
+- La lectura de ODT ya incluye el texto dentro de `text:span`.
+- `--base` se aplica también a `repaso-ia` y deja de inyectarse en acciones que
+  no declaran ese parámetro.
+- `mimetype` se escribe el primero y sin comprimir en los ODT generados.
+- Guía manual y README: comandos con rutas relativas y `--base`, tipos válidos
+  del JSON y formatos de entrada reales.
+
 ## [1.0.0] - 2026-11-23
 
 Primer release estable del CLI `tareas`: motor de acciones configurable desde

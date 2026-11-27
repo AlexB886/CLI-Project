@@ -208,3 +208,12 @@ def test_errores_de_proveedor_ia_se_muestran_como_offline(tmp_path):
     )
 
     assert resultado.salida == MENSAJE_OFFLINE_IA
+
+
+def test_ruta_vacia_da_mensaje_explicito_en_validar_ver_y_resumir():
+    """`Path('')` es '.', así que comprobar `str(ruta)` nunca detectaba la ausencia."""
+    for accion in (validar, ver, resumir_ia):
+        resultado = accion(contexto(ruta=""))
+
+        assert resultado.codigo == 1
+        assert resultado.error == "No se ha indicado ninguna ruta."

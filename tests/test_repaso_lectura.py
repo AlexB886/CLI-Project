@@ -244,3 +244,91 @@ def test_sin_ningun_conversor_de_pdf_informa_humanamente(tmp_path: Path, monkeyp
     monkeypatch.setattr(lectura.shutil, "which", lambda n: None)
     with pytest.raises(LecturaError, match="hace falta"):
         extraer_texto(pdf)
+
+
+def test_odt_con_texto_en_span_no_pierde_fragmentos(tmp_path: Path) -> None:
+    """El texto dentro de `text:span` y el que le sigue deben conservarse."""
+    odt = tmp_path / "con-span.odt"
+    contenido = (
+        '<?xml version="1.0"?>'
+        '<office:document-content '
+        'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+        "<office:body><office:text>"
+        "<text:h>Nudo <text:span>oculto</text:span> fin</text:h>"
+        "<text:p>Inicio <text:span>medio</text:span> final.</text:p>"
+        "</office:text></office:body></office:document-content>"
+    )
+    with ZipFile(odt, "w") as paquete:
+        paquete.writestr("content.xml", contenido)
+
+    assert extraer_texto(odt) == "Nudo oculto fin\n\nInicio medio final."
+
+
+def test_ods_extrae_texto_de_celdas(tmp_path: Path) -> None:
+    ods = tmp_path / "notas.ods"
+    contenido = (
+        '<?xml version="1.0"?>'
+        '<office:document-content '
+        'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+        'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+        'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0">'
+        "<office:body><office:spreadsheet><table:table><table:table-row>"
+        '<table:table-cell><text:p>Tema <text:span>4</text:span></text:p>'
+        "</table:table-cell></table:table-row></table:table>"
+        "</office:spreadsheet></office:body></office:document-content>"
+    )
+    with ZipFile(ods, "w") as paquete:
+        paquete.writestr("content.xml", contenido)
+
+    assert extraer_texto(ods) == "Tema 4"
+
+
+def test_html_extrae_solo_texto_visible(tmp_path: Path) -> None:
+    pagina = tmp_path / "apuntes.html"
+    pagina.write_text(
+        "<html><head><script>oculto()</script><style>x{}</style></head>"
+        "<body><h1>Tema 4</h1><p>Fotosíntesis &amp; luz</p></body></html>",
+        encoding="utf-8",
+    )
+
+    assert extraer_texto(pagina).splitlines() == ["Tema 4", "Fotosíntesis & luz"]
+
+
+@pytest.mark.parametrize("extension", [".rtf", ".doc"])
+def test_rtf_y_doc_se_convierten_con_libreoffice(
+    tmp_path: Path, monkeypatch, extension: str
+) -> None:
+    documento = tmp_path / f"apuntes{extension}"
+    documento.write_bytes(b"contenido de prueba")
+    monkeypatch.setattr(
+        lectura, "_localizar_convertidor", lambda nombres: "/usr/bin/libreoffice"
+    )
+    monkeypatch.setattr(
+        lectura,
+        "_convertir_a_txt",
+        lambda ruta, orden, destino, perfil=None: "Texto convertido",
+    )
+
+    assert extraer_texto(documento) == "Texto convertido"
+
+
+def test_rtf_sin_libreoffice_da_error_humano(tmp_path: Path, monkeypatch) -> None:
+    documento = tmp_path / "apuntes.rtf"
+    documento.write_text("contenido", encoding="utf-8")
+    monkeypatch.setattr(lectura, "_localizar_convertidor", lambda nombres: None)
+
+    with pytest.raises(LecturaError, match="LibreOffice"):
+        extraer_texto(documento)
+
+
+def test_cargar_documentos_con_html_no_lanza_attributeerror(tmp_path: Path) -> None:
+    """Los formatos declarados como soportados siempre devuelven texto o error."""
+    pagina = tmp_path / "apuntes.html"
+    pagina.write_text("<p>Fotosíntesis</p>", encoding="utf-8")
+    informes: list[str] = []
+
+    documentos = cargar_documentos([pagina], informes)
+
+    assert [d.origen.name for d in documentos] == ["apuntes.html"]
+    assert informes == []

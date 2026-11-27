@@ -281,7 +281,13 @@ def escribir_odt(
     )
 
     with zipfile.ZipFile(ruta_destino, "w", zipfile.ZIP_DEFLATED) as paquete:
-        paquete.writestr("mimetype", "application/vnd.oasis.opendocument.text")
+        # El estándar ODF exige que `mimetype` sea la primera entrada y esté
+        # sin comprimir para que los lectores puedan identificar el documento.
+        paquete.writestr(
+            "mimetype",
+            "application/vnd.oasis.opendocument.text",
+            compress_type=zipfile.ZIP_STORED,
+        )
         paquete.writestr("META-INF/manifest.xml", _MANIFEST)
         paquete.writestr("meta.xml", _meta_xml(titulo, generado))
         paquete.writestr("styles.xml", _styles_xml())

@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -59,13 +60,18 @@ def _leer_directo(ruta: Path) -> str:
     return texto
 
 
-def _texto_odt(ruta: Path) -> str:
-    """Extrae el texto de un ODT (zip con content.xml) sin dependencias externas."""
+def _texto_odf(ruta: Path, formato: str = "ODT") -> str:
+    """Extrae el texto de un ODT/ODS (zip con content.xml) sin dependencias.
+
+    Se usa `itertext()` para no perder el texto dentro de `text:span` ni el que
+    sigue a esos elementos; `nodo.text` por sí solo devolvía solo el primer
+    fragmento del párrafo.
+    """
     try:
         with zipfile.ZipFile(ruta) as archivo:
             contenido = archivo.read("content.xml")
     except (OSError, KeyError, zipfile.BadZipFile) as exc:
-        raise LecturaError(f"«{ruta.name}» no es un documento ODT válido.") from exc
+        raise LecturaError(f"«{ruta.name}» no es un documento {formato} válido.") from exc
 
     try:
         raiz = ElementTree.fromstring(contenido)
@@ -75,9 +81,53 @@ def _texto_odt(ruta: Path) -> str:
     partes: list[str] = []
     for nodo in raiz.iter():
         etiqueta = nodo.tag.rsplit("}", 1)[-1]
-        if etiqueta in ("p", "h") and nodo.text and nodo.text.strip():
-            partes.append(nodo.text.strip())
+        if etiqueta in ("p", "h"):
+            texto = "".join(nodo.itertext()).strip()
+            if texto:
+                partes.append(texto)
     return "\n\n".join(partes)
+
+
+class _LectorHTML(HTMLParser):
+    """Recoge el texto visible de un HTML sin añadir dependencias externas."""
+
+    _BLOQUES = {"br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "p", "tr"}
+    _OMITIR = {"noscript", "script", "style", "template"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._profundidad = 0
+        self.partes: list[str] = []
+
+    def handle_starttag(self, etiqueta: str, atributos: list[tuple[str, str | None]]) -> None:
+        if etiqueta in self._OMITIR:
+            self._profundidad += 1
+        elif etiqueta in self._BLOQUES:
+            self.partes.append("\n")
+
+    def handle_endtag(self, etiqueta: str) -> None:
+        if etiqueta in self._OMITIR and self._profundidad:
+            self._profundidad -= 1
+        elif etiqueta in self._BLOQUES:
+            self.partes.append("\n")
+
+    def handle_data(self, datos: str) -> None:
+        if not self._profundidad:
+            self.partes.append(datos)
+
+
+def _texto_html(ruta: Path) -> str:
+    """Extrae el texto de un HTML, descartando scripts y estilos."""
+    try:
+        crudo = ruta.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise LecturaError(f"No se pudo leer «{ruta.name}»: {exc}") from exc
+
+    lector = _LectorHTML()
+    lector.feed(crudo)
+    lector.close()
+    lineas = [" ".join(linea.split()) for linea in "".join(lector.partes).splitlines()]
+    return "\n".join(linea for linea in lineas if linea)
 
 
 def _texto_docx(ruta: Path) -> str:
@@ -174,7 +224,11 @@ def _convertir_a_txt(
     return generado.read_text(encoding="utf-8", errors="replace")
 
 
-def _convertir_con_filtro(ruta: Path, filtros: tuple[str, ...]) -> str:
+def _convertir_con_filtro(
+    ruta: Path,
+    filtros: tuple[str, ...],
+    requisitos: str = "LibreOffice o pdftotext",
+) -> str:
     """Convierte el documento a texto con LibreOffice_headless en un directorio temporal.
 
     LibreOffice devuelve a veces código 0 aunque el guardado falle, así que el
@@ -184,7 +238,7 @@ def _convertir_con_filtro(ruta: Path, filtros: tuple[str, ...]) -> str:
     orden = _localizar_convertidor(filtros)
     if orden is None:
         raise LecturaError(
-            f"Para leer «{ruta.name}» hace falta LibreOffice o pdftotext instalados."
+            f"Para leer «{ruta.name}» hace falta {requisitos} instalados."
         )
 
     try:
@@ -242,11 +296,24 @@ def extraer_texto(ruta: Path) -> str:
     if extension in FORMATOS_LECTURA_DIRECTA:
         return _leer_directo(ruta)
     if extension == ".odt":
-        return _texto_odt(ruta)
+        return _texto_odf(ruta)
+    if extension == ".ods":
+        return _texto_odf(ruta, "ODS")
     if extension == ".docx":
         return _texto_docx(ruta)
+    if extension in (".htm", ".html"):
+        return _texto_html(ruta)
+    if extension in (".doc", ".rtf"):
+        # Formatos binarios o con marcado propio: los convierte LibreOffice,
+        # siempre en temporal y sin tocar el original.
+        return _convertir_con_filtro(
+            ruta, ("libreoffice", "soffice"), requisitos="LibreOffice"
+        )
     if extension == ".pdf":
         return _leer_pdf(ruta)
+    raise LecturaError(
+        f"«{ruta.name}» tiene un formato no soportado ({extension})."
+    )
 
 
 def _leer_pdf(ruta: Path) -> str:

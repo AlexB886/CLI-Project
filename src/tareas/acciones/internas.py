@@ -123,9 +123,10 @@ def listar(ctx: ContextoAccion) -> ResultadoAccion:
 @registrar("validar")
 def validar(ctx: ContextoAccion) -> ResultadoAccion:
     """Comprueba que una ruta existe, es un fichero y no está vacío."""
-    ruta = _como_ruta(ctx.parametros.get("ruta") or "")
-    if not str(ruta):
+    valor = ctx.parametros.get("ruta")
+    if not valor or not str(valor).strip():
         return ResultadoAccion(codigo=1, error="No se ha indicado ninguna ruta.")
+    ruta = _como_ruta(valor)
 
     if not ruta.exists():
         return ResultadoAccion(codigo=1, error=f"La ruta «{ruta}» no existe.")
@@ -197,9 +198,10 @@ def borrar(ctx: ContextoAccion) -> ResultadoAccion:
 @registrar("ver")
 def ver(ctx: ContextoAccion) -> ResultadoAccion:
     """Muestra el contenido de un fichero por consola."""
-    ruta = _como_ruta(ctx.parametros.get("ruta") or "")
-    if not str(ruta):
+    valor = ctx.parametros.get("ruta")
+    if not valor or not str(valor).strip():
         return ResultadoAccion(codigo=1, error="No se ha indicado ninguna ruta.")
+    ruta = _como_ruta(valor)
 
     if not ruta.is_file():
         return ResultadoAccion(codigo=1, error=f"«{ruta}» no es un fichero legible.")
@@ -295,8 +297,11 @@ def tamano(ctx: ContextoAccion) -> ResultadoAccion:
 @registrar("resumir-ia")
 def resumir_ia(ctx: ContextoAccion) -> ResultadoAccion:
     """Resume un fichero de texto con IA o informa del modo offline."""
-    ruta = _como_ruta(ctx.parametros.get("ruta") or "")
-    if not str(ruta) or not ruta.is_file():
+    valor = ctx.parametros.get("ruta")
+    if not valor or not str(valor).strip():
+        return ResultadoAccion(codigo=1, error="No se ha indicado ninguna ruta.")
+    ruta = _como_ruta(valor)
+    if not ruta.is_file():
         return ResultadoAccion(codigo=1, error=f"«{ruta}» no es un fichero legible.")
 
     try:
@@ -420,15 +425,19 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
     brutos = ctx.parametros.get("archivos") or []
     if isinstance(brutos, (str, Path)):
         brutos = [brutos]
-    archivos = [Path(str(r)).expanduser() for r in brutos]
-    if not archivos:
+    solicitados = [Path(str(r)).expanduser() for r in brutos]
+    if not solicitados:
         return ResultadoAccion(codigo=1, error="Indica al menos un documento de apuntes.")
 
     try:
         base = Path(str(ctx.parametros.get("base") or Path.cwd())).expanduser().resolve()
     except OSError as exc:
         return ResultadoAccion(codigo=1, error=f"No se pudo resolver la raíz autorizada: {exc}")
-    for ruta in archivos:
+
+    # Resolver contra `base` también para leer: si no, el confinamiento miraría
+    # un fichero y la lectura abriría otro distinto relativo al cwd.
+    archivos: list[Path] = []
+    for ruta in solicitados:
         absoluta = ruta if ruta.is_absolute() else base / ruta
         try:
             resuelta = absoluta.resolve()
@@ -439,6 +448,7 @@ def repaso_ia(ctx: ContextoAccion) -> ResultadoAccion:
                 codigo=1,
                 error=f"El apunte «{ruta}» está fuera de la raíz autorizada «{base}».",
             )
+        archivos.append(resuelta)
 
     proveedor = ctx.proveedor_ia
     if proveedor is None:

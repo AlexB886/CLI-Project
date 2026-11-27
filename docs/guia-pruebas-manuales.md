@@ -46,7 +46,7 @@ printf 'borrable\n' > $P/borrable.txt
 | C2 | `uv run tareas validar $P/apuntes.txt` | `OK <ruta>` y exit 0 | exit≠0 |
 | C3 | `uv run tareas ver $P/tema2.md` | Contenido del fichero, exit 0 | Contenido vacío |
 | C4 | `uv run tareas tamano $P` | Tabla: Ficheros 5, Tamaño total > 0, exit 0 | exit≠0 |
-| C5 | `uv run tareas borrar $P/borrable.txt --dry-run` | `[simular] Se borraría «…» (8 B)`, exit 0, **y el fichero sigue existiendo** | El fichero desaparece o exit≠0 |
+| C5 | `uv run tareas borrar borrable.txt --base $P --dry-run` | `[simular] Se borraría «…» (8 B)`, exit 0, **y el fichero sigue existiendo** | El fichero desaparece o exit≠0 |
 | C6 | `uv run tareas ejecutar listar $P` (misma acción vía nombre) | Igual que C1 | exit≠0 |
 
 ## D. Configuración (`acciones.json`)
@@ -66,8 +66,8 @@ Nunca escribas la clave en el repo: usa variables de entorno.
 |---|---|---|---|
 | E1 | `uv run tareas resumir-ia $P/apuntes.txt` | Resumen de 2–4 líneas, exit 0 | Ver F1 |
 | E2 | `uv run tareas tarea-ia "Preparar la exposición del viernes"` | 3 líneas: `Título:` / `Prioridad: Alta\|Media\|Baja` / `Fecha sugerida: AAAA-MM-DD o Sin fecha`, exit 0 | Respuesta sin formato |
-| E3 | `uv run tareas repaso-ia $P/apuntes.txt --dry-run` | `[simular] Se generaría «…» … y se abriría en LibreOffice Writer.`, exit 0, no escribe nada | Escribe ficheros |
-| E4 | `uv run tareas repaso-ia $P/apuntes.txt -p abrir=false` | Genera `$P/apuntes.odt`, exit 0, abre Writer solo si `abrir=true` y LibreOffice existe | Modifica el original (ver I) |
+| E3 | `uv run tareas repaso-ia apuntes.txt --base $P --dry-run` | `[simular] Se generaría «…» … y se abriría en LibreOffice Writer.`, exit 0, no escribe nada | Escribe ficheros |
+| E4 | `uv run tareas repaso-ia apuntes.txt --base $P -p abrir=false` | Genera `$P/apuntes.odt`, exit 0, abre Writer solo si `abrir=true` y LibreOffice existe | Modifica el original (ver I) |
 
 ## F. IA no disponible: modo offline
 
@@ -77,7 +77,7 @@ Con `TAREAS_API_KEY` ausente o red caída (desconecta o usa un endpoint falso):
 |---|---|---|---|
 | F1 | `uv run tareas resumir-ia $P/apuntes.txt` | `IA no disponible (modo offline): sigo con las acciones sin IA`, exit 0 | Traceback o exit≠0 |
 | F2 | `uv run tareas tarea-ia "estudiar tema"` | Igual que F1, exit 0 | Traceback |
-| F3 | `uv run tareas repaso-ia $P/apuntes.txt -p abrir=false` | Mensaje offline o `Error: …IA del centro…` explicando causa (conexión/clave/timeout), exit 0 u 1 según el caso, sin traceback | Traceback o fichero ODT a medias |
+| F3 | `uv run tareas repaso-ia apuntes.txt --base $P -p abrir=false` | Mensaje offline o `Error: …IA del centro…` explicando causa (conexión/clave/timeout), exit 0 u 1 según el caso, sin traceback | Traceback o fichero ODT a medias |
 | F4 | `uv run tareas listar $P && uv run tareas validar $P/apuntes.txt` | Siguen funcionando igual que con IA, exit 0 | Dependen de la IA |
 
 ## G. Errores intencionados y mensajes humanos
@@ -98,10 +98,14 @@ Todos los mensajes van por stderr con prefijo `Error:` y sin traceback.
 
 | # | Comando | Resultado esperado | Exit |
 |---|---|---|---|
-| H1 | `uv run tareas borrar $P/borrable.txt </dev/null` (respondes `N` o cancelas) | `Operación cancelada.` y **el fichero sigue existiendo** | 1 |
+| H1 | `uv run tareas borrar borrable.txt --base $P </dev/null` (respondes `N` o cancelas) | `Operación cancelada.` y **el fichero sigue existiendo** | 1 |
 | H2 | `uv run tareas borrar /etc/passwd` | `Error: No se permiten rutas absolutas para borrar.` | 1 |
-| H3 | `uv run tareas borrar $P/../escape.txt --dry-run` | `Error: La ruta … queda fuera de la raíz autorizada …` | 1 |
-| H4 | `uv run tareas borrar $P/sub --dry-run` | `Error: «…» es una carpeta. Esta acción solo borra ficheros.` | 1 |
+| H3 | `uv run tareas borrar ../escape.txt --base $P --dry-run` | `Error: La ruta … queda fuera de la raíz autorizada …` | 1 |
+| H4 | `uv run tareas borrar sub --base $P --dry-run` | `Error: «…» es una carpeta. Esta acción solo borra ficheros.` | 1 |
+
+`borrar` rechaza rutas absolutas; `repaso-ia` solo las admite dentro de la raíz
+autorizada. Cuando el fichero esté fuera del directorio actual, usa una ruta
+relativa junto a `--base $P`.
 
 ## I. Comprobación final
 
