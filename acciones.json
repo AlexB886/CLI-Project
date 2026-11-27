@@ -130,6 +130,11 @@
           "por_defecto": true,
           "ayuda": "Abre el repaso en LibreOffice Writer al terminar."
         },
+        "base": {
+          "tipo": "ruta",
+          "por_defecto": ".",
+          "ayuda": "Raíz autorizada para leer los apuntes y guardar el repaso (por defecto, el cwd)."
+        },
         "paralelo": {
           "tipo": "entero",
           "por_defecto": 3,

@@ -45,20 +45,33 @@ def resolver_parametros(
     posicionales: list[str] | None = None,
     pares: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Mezcla posicionales, CLAVE=VALOR y valores por defecto."""
+    """Mezcla posicionales, CLAVE=VALOR y valores por defecto.
+
+    Un parámetro de tipo «rutas» absorbe todos los posicionales restantes: así
+    `repaso-ia apuntes.md resumen.txt` entrega dos apuntes en vez de convertir
+    el segundo en el objetivo de estudio.
+    """
     valores: dict[str, Any] = {}
     parametros = list(accion.parametros)
     posicionales = posicionales or []
     pares = pares or []
 
-    if len(posicionales) > len(parametros):
+    asignados = 0
+    for parametro in parametros:
+        if asignados >= len(posicionales):
+            break
+        if parametro.tipo == "rutas":
+            valores[parametro.nombre] = list(posicionales[asignados:])
+            asignados = len(posicionales)
+            break
+        valores[parametro.nombre] = posicionales[asignados]
+        asignados += 1
+
+    if asignados < len(posicionales):
         raise AccionNoValida(
-            f"La acción «{accion.nombre}» admite {len(parametros)} argumento(s) "
+            f"La acción «{accion.nombre}» admite {asignados} argumento(s) "
             f"posicional(es) y se han recibido {len(posicionales)}."
         )
-
-    for parametro, valor in zip(parametros, posicionales):
-        valores[parametro.nombre] = valor
 
     for par in pares:
         if par == "simular=1":

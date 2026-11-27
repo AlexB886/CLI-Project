@@ -84,6 +84,14 @@ def test_rechaza_json_mal_formado(tmp_path):
         CargadorAccionesJSON().cargar(ruta)
 
 
+def test_rechaza_utf8_invalido_sin_traceback(tmp_path):
+    ruta = tmp_path / "acciones.json"
+    ruta.write_bytes(b'{"version": 1, "acciones": [\xff]}')
+
+    with pytest.raises(ConfigError, match="No se pudo leer"):
+        CargadorAccionesJSON().cargar(ruta)
+
+
 def test_rechaza_archivo_ausente_y_directorio(tmp_path):
     cargador = CargadorAccionesJSON()
 

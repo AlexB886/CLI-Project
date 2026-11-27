@@ -102,3 +102,25 @@ def test_parametro_opcional_sin_valor_se_resuelve_como_none():
     accion = crear_accion([Parametro("opcional")])
 
     assert resolver_parametros(accion) == {"opcional": None}
+
+
+def test_varios_posicionales_se_asignan_al_parametro_rutas():
+    """`repaso-ia uno.txt dos.txt` son dos apuntes, no apunte + objetivo."""
+    accion = crear_accion(
+        [
+            Parametro("archivos", "rutas", requerido=True),
+            Parametro("objetivo", "texto", por_defecto="repaso general"),
+        ]
+    )
+
+    assert resolver_parametros(accion, ["uno.txt", "dos.txt"]) == {
+        "archivos": ["uno.txt", "dos.txt"],
+        "objetivo": "repaso general",
+    }
+
+
+def test_rutas_posicionales_y_valor_nombrado_repetido_se_rechaza():
+    accion = crear_accion([Parametro("archivos", "rutas", requerido=True)])
+
+    with pytest.raises(AccionNoValida, match="indicado dos veces"):
+        resolver_parametros(accion, ["uno.txt"], ["archivos=dos.txt"])

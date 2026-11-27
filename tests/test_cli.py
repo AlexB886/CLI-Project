@@ -406,3 +406,24 @@ def test_composicion_de_acciones_sobre_una_carpeta_de_prueba(tmp_path, monkeypat
     )
     assert borrado.exit_code == 0 and "Se borraría" in borrado.output
     assert (apuntes / "tema1.txt").is_file(), "el dry-run no toca el original"
+
+
+def test_cli_base_se_acepta_en_repaso_y_no_se_inyecta_en_otras_acciones(
+    tmp_path, monkeypatch
+):
+    """`--base` solo llega a acciones que declaran ese parámetro."""
+    (tmp_path / "apuntes.txt").write_text("contenido sintético", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("tareas.motor.crear_proveedor", ProveedorNulo)
+    ruta_acciones = Path(__file__).resolve().parents[1] / "acciones.json"
+    app = crear_app(ruta_acciones)
+    runner = CliRunner()
+
+    repaso = runner.invoke(
+        app, ["repaso-ia", "apuntes.txt", "--base", str(tmp_path), "--dry-run"]
+    )
+    validar = runner.invoke(app, ["validar", "apuntes.txt", "--base", str(tmp_path)])
+
+    assert repaso.exit_code == 0, salida(repaso)
+    assert "no tiene el parámetro" not in salida(repaso)
+    assert validar.exit_code == 0, salida(validar)

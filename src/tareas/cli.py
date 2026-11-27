@@ -173,7 +173,9 @@ def _crear_comando(accion: Accion):
             ),
         ] = False,
     ) -> None:
-        if base is not None:
+        # `--base` solo tiene sentido en acciones que declaran ese parámetro:
+        # inyectarlo en cualquier otra produciría un error de parámetro falso.
+        if base is not None and any(p.nombre == "base" for p in accion.parametros):
             parametros = [*(parametros or []), f"base={base}"]
         if dry_run:
             parametros = [*(parametros or []), "simular=1"]

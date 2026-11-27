@@ -38,6 +38,15 @@ def test_odt_es_un_zip_valido_con_su_mimetype(tmp_path: Path) -> None:
         assert paquete.read("mimetype") == b"application/vnd.oasis.opendocument.text"
 
 
+def test_mimetype_es_primero_y_no_comprimido(tmp_path: Path) -> None:
+    """ODF exige identificar el tipo sin descomprimir el paquete."""
+    ruta = _odt(tmp_path)
+    with zipfile.ZipFile(ruta) as paquete:
+        entrada = paquete.infolist()[0]
+        assert entrada.filename == "mimetype"
+        assert entrada.compress_type == zipfile.ZIP_STORED
+
+
 def test_odt_contiene_texto_de_las_secciones(tmp_path: Path) -> None:
     ruta = _odt(tmp_path)
     with zipfile.ZipFile(ruta) as paquete:

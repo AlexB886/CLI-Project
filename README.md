@@ -217,14 +217,15 @@ tareas borrar fichero.txt --dry-run
 
 # Sin --dry-run pregunta antes de borrar
 tareas borrar fichero.txt
-# → ¿Borrar «fichero.txt»? [y/N]
+# → La acción «borrar» es destructiva. ¿Continuar? [y/N]
 
 # Para scripts: --si confirma sin preguntar
 tareas borrar fichero.txt --si
 ```
 
 Además, `borrar` está **confinado a una raíz autorizada** (el directorio actual
-o la que pases con `--base`). Rechaza rutas absolutas y cualquier `../` que salga
+o la que pases con `--base`); `repaso-ia` aplica la misma política a sus apuntes
+y a la carpeta de salida. `borrar` rechaza rutas absolutas y cualquier `../` que salga
 de esa raíz, para que un borrado no pueda tocar ficheros del sistema ni de fuera
 del proyecto. La política de confinamiento y los mensajes de seguridad viven en
 un módulo propio, `tareas.repaso.seguridad`, reutilizado por `borrar` y
@@ -241,11 +242,15 @@ documentado en la skill `.opencode/skills/acciones-json/SKILL.md`. El comando
 {
   "nombre": "comprimir",
   "descripcion": "Comprime una carpeta en un .zip",
-  "tipo": "sistema",
+  "tipo": "comando",
+  "ejecutar": ["zip", "-r", "destino.zip", "carpeta"],
   "destructiva": false,
   "ia": false
 }
 ```
+
+Los tipos válidos son `funcion` y `comando`; para `funcion`, `ejecutar` es el
+nombre de una función registrada.
 
 ## Documentación técnica
 
@@ -263,7 +268,6 @@ src/tareas/
 ├── modelos.py       # modelos de datos
 ├── parametros.py    # parseo de argumentos
 ├── configuracion.py # carga y valida el JSON
-├── errores.py       # excepciones propias con mensajes humanos
 ├── repaso/          # lectura, síntesis, esquemas, ODT, seguridad y apertura en Writer
 └── ia/              # proveedor IA (interfaz, ProveedorNulo, proveedor del centro)
 docs/adr/            # decisiones de arquitectura
@@ -333,8 +337,11 @@ uv run tareas repaso-ia tema.pdf -p paralelo=5                        # más con
 uv run tareas repaso-ia tema.pdf --dry-run                          # simular
 ```
 
-- Formatos leídos: `.txt/.md/.rst/.csv`, `.pdf` (con `pdftotext` o LibreOffice),
-  `.docx/.odt/.rtf/.html` (los ZIP con XML se parsean directamente).
+- Formatos leídos: `.txt/.md/.rst/.csv`, `.pdf` (con `pdftotext`, LibreOffice o
+  Ghostscript), `.docx/.odt/.ods` (ZIP con XML, se parsean directamente),
+  `.htm/.html` (se extrae el texto visible) y `.doc/.rtf` (requieren
+  LibreOffice). Varios apuntes se pasan como posicionales:
+  `repaso-ia apuntes.md resumen.txt`.
 - Los originales **nunca se modifican**; el repaso se escribe junto al primer
   apunte (o en `salida=`). Si el nombre ya existe, se guarda con sufijo `_2`,
   sin sobrescribir.

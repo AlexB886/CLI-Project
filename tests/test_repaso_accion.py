@@ -79,6 +79,31 @@ def _apuntes(tmp_path: Path, nombre: str = "tema.txt", texto: str = "La fotosín
     return ruta
 
 
+def test_rutas_relativas_se_leen_desde_la_base_no_desde_el_cwd(
+    monkeypatch, tmp_path
+) -> None:
+    """`--base` debe cambiar también la lectura, no solo la comprobación."""
+    base = tmp_path / "documentos"
+    base.mkdir()
+    (base / "apuntes.txt").write_text(
+        "La fotosíntesis ocurre en los cloroplastos.", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    ctx = ContextoAccion(
+        parametros={
+            "archivos": ["apuntes.txt"],
+            "base": str(base),
+            "abrir": False,
+        },
+        proveedor_ia=IAControlada(),
+    )
+
+    resultado = internas.repaso_ia(ctx)
+
+    assert resultado.codigo == 0, resultado.error
+    assert (base / "apuntes.odt").is_file()
+
+
 def test_apuntes_validos_generan_un_odt_y_lo_reportan(monkeypatch, tmp_path) -> None:
     apuntes = _apuntes(tmp_path)
     resultado = _con_ia(monkeypatch, tmp_path, [apuntes], IAControlada(), abrir=False)
